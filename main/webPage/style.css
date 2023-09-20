@@ -1,14 +1,13 @@
- /* Style the chart container div */
- #chart_div {
+#chart-container {
     width: 100%;
-    max-width: 800px; /* Set a maximum width if needed */
-    height: 400px; /* Set the initial height */
-    margin: 0 auto; /* Center the chart horizontally */
+    max-width: 800px;
+    height: 400px;
+    margin: 0 auto;
+    border: 1px solid #ddd;
+    position: relative;
 }
 
-/* Style the chart title */
-.google-visualization-title {
-    font-size: 18px;
-    font-weight: bold;
-    text-align: center;
+#chart {
+    width: 100%;
+    height: 100%;
 }
