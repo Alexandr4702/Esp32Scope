@@ -16,48 +16,50 @@
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "esp_eth.h"
+#include "esp_pthread.h"
 #include "protocol_examples_common.h"
 
 #include <esp_http_server.h>
 
 #include <stdio.h>
 
+#include <thread>
+
 #include "single_include/nlohmann/json.hpp"
 
-void async_sender(void *);
+void adc_task(void);
 
 esp_err_t ws_callback(httpd_req_t *req);
 esp_err_t main_handler_callback(httpd_req_t *req);
 esp_err_t main_js_script_callback(httpd_req_t *req);
 esp_err_t style_css_callback(httpd_req_t *req);
 
-static const char *TAG = "ws_echo_server";
+const char *TAG = "ws_echo_server";
 httpd_handle_t server = NULL;
-TaskHandle_t async_sender_handler;
 const size_t maxNumberOfClients = 8;
 
-static const httpd_uri_t index_html_cb_header = {
+const httpd_uri_t index_html_cb_header = {
     .uri = "/",
     .method = HTTP_GET,
     .handler = main_handler_callback,
     .user_ctx = NULL,
     .is_websocket = false};
 
-static const httpd_uri_t main_js_script_cb_header = {
+const httpd_uri_t main_js_script_cb_header = {
     .uri = "/main.js",
     .method = HTTP_GET,
     .handler = main_js_script_callback,
     .user_ctx = NULL,
     .is_websocket = false};
 
-static const httpd_uri_t style_css_cb_header = {
+const httpd_uri_t style_css_cb_header = {
     .uri = "/style.css",
     .method = HTTP_GET,
     .handler = style_css_callback,
     .user_ctx = NULL,
     .is_websocket = false};
 
-static const httpd_uri_t ws_cb_header = {
+const httpd_uri_t ws_cb_header = {
     .uri = "/ws",
     .method = HTTP_GET,
     .handler = ws_callback,
@@ -171,7 +173,7 @@ esp_err_t ws_callback(httpd_req_t *req)
     return ret;
 }
 
-static httpd_handle_t start_webserver(void)
+httpd_handle_t start_webserver(void)
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -187,7 +189,6 @@ static httpd_handle_t start_webserver(void)
         httpd_register_uri_handler(server, &style_css_cb_header);
         httpd_register_uri_handler(server, &ws_cb_header);
 
-        xTaskCreate(async_sender, "async_sender", 4096, NULL, configMAX_PRIORITIES - 5, &async_sender_handler);
         return server;
     }
 
@@ -195,16 +196,16 @@ static httpd_handle_t start_webserver(void)
     return NULL;
 }
 
-static void stop_webserver(httpd_handle_t server)
+void stop_webserver(httpd_handle_t server)
 {
-    // Stop the httpd server
-    vTaskDelete(async_sender_handler);
     httpd_stop(server);
 }
 
-static void disconnect_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
+void disconnect_handler(void *arg, esp_event_base_t event_base,
+                        int32_t event_id, void *event_data)
 {
+    ESP_LOGI(TAG, "Wifi Disconncted");
+
     httpd_handle_t *server = (httpd_handle_t *)arg;
     if (*server)
     {
@@ -214,9 +215,11 @@ static void disconnect_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-static void connect_handler(void *arg, esp_event_base_t event_base,
-                            int32_t event_id, void *event_data)
+void connect_handler(void *arg, esp_event_base_t event_base,
+                     int32_t event_id, void *event_data)
 {
+    ESP_LOGI(TAG, "Wifi Connected");
+
     httpd_handle_t *server = (httpd_handle_t *)arg;
     if (*server == NULL)
     {
@@ -225,13 +228,17 @@ static void connect_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-void sendData2Clients(const void* data, const size_t size_of_data)
+void sendWsData2Clients(const void *data, const size_t size_of_data)
 {
+    if (server == NULL)
+    {
+        return;
+    }
+
     int sockets[maxNumberOfClients];
     size_t number_of_clients = maxNumberOfClients;
     if (httpd_get_client_list(server, &number_of_clients, sockets) == ESP_OK)
     {
-        // fprintf(stdout, "Numbers of sockets:%u \r\n", size);
         for (int i = 0; i < number_of_clients; i++)
         {
             if (httpd_ws_get_fd_info(server, sockets[i]) == HTTPD_WS_CLIENT_WEBSOCKET)
@@ -241,11 +248,10 @@ void sendData2Clients(const void* data, const size_t size_of_data)
                 to_send.final = 1;
                 to_send.fragmented = 0;
                 to_send.type = HTTPD_WS_TYPE_TEXT;
-                to_send.payload = reinterpret_cast<uint8_t*> (const_cast<void*> (data));
+                to_send.payload = reinterpret_cast<uint8_t *>(const_cast<void *>(data));
                 to_send.len = size_of_data;
                 if (httpd_ws_send_frame_async(server, sockets[i], &to_send) == ESP_OK)
                 {
-                    // fprintf(stdout, "Send data len %u \r\n", len);
                 }
                 else
                 {
@@ -253,30 +259,6 @@ void sendData2Clients(const void* data, const size_t size_of_data)
                 }
             }
         }
-    }
-}
-
-void async_sender(void *)
-{
-    int *sockets = new int[maxNumberOfClients];
-    std::vector<uint16_t> data_to_send = {10, 12, 13};
-    while (1)
-    {
-        uint32_t uptime_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        double uptime_s = uptime_ms / 1000.0;
-
-        using json = nlohmann::json;
-        using namespace std;
-        json test;
-        test["uptime"] = uptime_s;
-        test["Ch1Data"] = data_to_send;
-
-        string data = test.dump();
-        uint32_t len = data.size();
-
-        sendData2Clients(data.c_str(), len);
-
-        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
 
@@ -288,25 +270,16 @@ extern "C"
         ESP_ERROR_CHECK(esp_netif_init());
         ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-        /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-         * Read "Establishing Wi-Fi or Ethernet Connection" section in
-         * examples/protocols/README.md for more information about this function.
-         */
-        ESP_ERROR_CHECK(example_connect());
-
-        /* Register event handlers to stop the server when Wi-Fi or Ethernet is disconnected,
-         * and re-start it upon connection.
-         */
-#ifdef CONFIG_EXAMPLE_CONNECT_WIFI
         ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connect_handler, &server));
         ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
-#endif // CONFIG_EXAMPLE_CONNECT_WIFI
-#ifdef CONFIG_EXAMPLE_CONNECT_ETHERNET
-        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &connect_handler, &server));
-        ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_DISCONNECTED, &disconnect_handler, &server));
-#endif // CONFIG_EXAMPLE_CONNECT_ETHERNET
 
-        /* Start the server for the first time */
-        server = start_webserver();
+        ESP_ERROR_CHECK(example_connect());
+
+        esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
+        esp_pthread_set_cfg(&default_cfg);
+        std::thread adc_task_handler(adc_task);
+        adc_task_handler.detach();
+
+        vTaskDelete(NULL);
     }
 }

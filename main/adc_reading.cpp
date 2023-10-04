@@ -13,12 +13,14 @@
 #include "freertos/semphr.h"
 #include "esp_adc/adc_continuous.h"
 #include "soc/adc_channel.h"
+#include "driver/uart.h"
+
+#include "single_include/nlohmann/json.hpp"
 
 #define EXAMPLE_ADC_UNIT ADC_UNIT_1
 #define _EXAMPLE_ADC_UNIT_STR(unit) #unit
 #define EXAMPLE_ADC_UNIT_STR(unit) _EXAMPLE_ADC_UNIT_STR(unit)
 #define EXAMPLE_ADC_CONV_MODE ADC_CONV_SINGLE_UNIT_1
-#define EXAMPLE_ADC_ATTEN ADC_ATTEN_DB_0
 #define EXAMPLE_ADC_BIT_WIDTH SOC_ADC_DIGI_MAX_BITWIDTH
 
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
@@ -31,16 +33,14 @@
 #define EXAMPLE_ADC_GET_DATA(p_data) ((p_data)->type2.data)
 #endif
 
-#define EXAMPLE_READ_LEN 256
+#define EXAMPLE_READ_LEN 512
 
-#if CONFIG_IDF_TARGET_ESP32
-static adc_channel_t channel[2] = {adc_channel_t(ADC1_GPIO34_CHANNEL), adc_channel_t(ADC1_GPIO35_CHANNEL)};
-#else
-static adc_channel_t channel[2] = {ADC_CHANNEL_2, ADC_CHANNEL_3};
-#endif
+static adc_channel_t channel[] = {adc_channel_t(ADC1_GPIO34_CHANNEL)};
 
 static TaskHandle_t s_task_handle;
 static const char *TAG = "EXAMPLE";
+
+void sendWsData2Clients(const void *data, const size_t size_of_data);
 
 static bool IRAM_ATTR s_conv_done_cb(adc_continuous_handle_t handle, const adc_continuous_evt_data_t *edata, void *user_data)
 {
@@ -71,7 +71,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
     dig_cfg.pattern_num = channel_num;
     for (int i = 0; i < channel_num; i++)
     {
-        adc_pattern[i].atten = EXAMPLE_ADC_ATTEN;
+        adc_pattern[i].atten = ADC_ATTEN_DB_2_5;
         adc_pattern[i].channel = channel[i] & 0x7;
         adc_pattern[i].unit = EXAMPLE_ADC_UNIT;
         adc_pattern[i].bit_width = EXAMPLE_ADC_BIT_WIDTH;
@@ -85,10 +85,17 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
 
     *out_handle = handle;
 }
-extern "C"
-{
+
 void adc_task(void)
 {
+    uart_set_baudrate(UART_NUM_0, 576000);
+
+    using json = nlohmann::json;
+    using namespace std;
+    json test;
+
+    std::vector<uint16_t> data_to_send(EXAMPLE_READ_LEN / sizeof(adc_digi_output_data_t));
+
     esp_err_t ret;
     uint32_t ret_num = 0;
     uint8_t result[EXAMPLE_READ_LEN] = {0};
@@ -125,27 +132,22 @@ void adc_task(void)
             ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 0);
             if (ret == ESP_OK)
             {
-                ESP_LOGI("TASK", "ret is %x, ret_num is %" PRIu32 " bytes", ret, ret_num);
-                for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES)
+                printf("readed %lu \r\n", ret_num);
+                adc_digi_output_data_t *p = reinterpret_cast<adc_digi_output_data_t *>(result);
+                for (int i = 0; i < ret_num / sizeof(adc_digi_output_data_t); i++)
                 {
-                    adc_digi_output_data_t *p = (adc_digi_output_data_t *) &result[i];
-                    uint32_t chan_num = EXAMPLE_ADC_GET_CHANNEL(p);
-                    uint32_t data = EXAMPLE_ADC_GET_DATA(p);
+                    uint32_t chan_num = EXAMPLE_ADC_GET_CHANNEL(p + i);
+                    uint32_t data = EXAMPLE_ADC_GET_DATA(p + i);
                     /* Check the channel number validation, the data is invalid if the channel num exceed the maximum channel */
                     if (chan_num < SOC_ADC_CHANNEL_NUM(EXAMPLE_ADC_UNIT))
                     {
-                        ESP_LOGI(TAG, "Unit: %s, Channel: %lu, Value: %lu", unit, chan_num, data);
-                    }
-                    else
-                    {
-                        ESP_LOGW(TAG, "Invalid data [%s_%" PRIu32 "_%" PRIx32 "]", unit, chan_num, data);
+                        data_to_send[i] = data;
                     }
                 }
-                /**
-                 * Because printing is slow, so every time you call `ulTaskNotifyTake`, it will immediately return.
-                 * To avoid a task watchdog timeout, add a delay here. When you replace the way you process the data,
-                 * usually you don't need this delay (as this task will block for a while).
-                 */
+                test["Ch1Data"] = data_to_send;
+                string data = test.dump();
+                uint32_t len = data.size();
+                sendWsData2Clients(data.c_str(), len);
                 vTaskDelay(1);
             }
             else if (ret == ESP_ERR_TIMEOUT)
@@ -158,5 +160,4 @@ void adc_task(void)
 
     ESP_ERROR_CHECK(adc_continuous_stop(handle));
     ESP_ERROR_CHECK(adc_continuous_deinit(handle));
-}
 }

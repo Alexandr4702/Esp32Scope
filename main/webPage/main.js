@@ -1,8 +1,25 @@
+let host_addres = window.location.host;
+let web_socket_uri = "ws://" + host_addres + "/ws";
+console.log(web_socket_uri);
+let socket = new WebSocket(web_socket_uri);
+
+socket.onopen = function (e) {
+
+};
+
+socket.onclose = function (event) {
+    alert("Conetion is closed.");
+};
+
+socket.onerror = function (error) {
+    alert("Error during connection.");
+};
+
 // Initialize dataPoints array
 var dataPoints = [];
 
 // Set the maximum number of data points to display
-const maxDataPoints = 100; // Adjust as needed
+const maxDataPoints = 10000; // Adjust as needed
 
 // Get the canvas element and its context
 var canvas = document.getElementById("chart");
@@ -22,16 +39,23 @@ var xAxisPos, yAxisPos;
 var uptime = 0;
 
 // Define a function to update the chart
-function updateChart() {
-    // Replace this line with code to fetch new ADC data
-    var adcValue = Math.random() * 100; // Replace with your actual ADC data source
+function updateChart(newADCValues) {
 
-    // Add the new data point to the dataPoints array
-    dataPoints.push({ x: uptime, y: adcValue });
+    // Calculate the start time for the new data based on the existing data
+    var startTime = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1][0] + 1 : 0;
 
-    // Remove older data points if the number exceeds maxDataPoints
+    // Generate new data points using the provided ADC values and start time
+    var newDataPoints = newADCValues.map(function (adcValue, index) {
+        return { x: startTime + index, y: adcValue };
+    });
+
+    // Add the new data points to the dataPoints array
+    dataPoints.push.apply(dataPoints, newDataPoints);
+
+    // Remove older data points if the total number exceeds maxDataPoints
     if (dataPoints.length > maxDataPoints) {
-        dataPoints.shift(); // Remove the first (oldest) data point
+        var excess = dataPoints.length - maxDataPoints;
+        dataPoints.splice(0, excess); // Remove the oldest data points
     }
 
     // Clear the canvas
@@ -47,8 +71,12 @@ function updateChart() {
     uptime++;
 }
 
-// Call the updateChart function to update the chart periodically
-setInterval(updateChart, 10); // Update every second, adjust as needed
+socket.onmessage = function (event) {
+
+    let jsonObject = JSON.parse(event.data);
+    console.log(jsonObject.Ch1Data);
+    updateChart(jsonObject.Ch1Data);
+};
 
 // Function to draw the chart axes
 function drawAxes() {
@@ -75,7 +103,7 @@ function drawAxes() {
 
     // Create scales for X and Y axes
     xScale = xAxisLength / (maxDataPoints - 1);
-    yScale = yAxisLength / 100; // Assumes the ADC values range from 0 to 100
+    yScale = yAxisLength / 4096; // Assumes the ADC values range from 0 to 100
 
     // Draw X-axis labels
     for (var i = 0; i < maxDataPoints; i += Math.floor(maxDataPoints / 10)) {
