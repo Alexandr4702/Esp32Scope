@@ -33,7 +33,7 @@
 #define EXAMPLE_ADC_GET_DATA(p_data) ((p_data)->type2.data)
 #endif
 
-#define EXAMPLE_READ_LEN 512
+#define EXAMPLE_READ_LEN 1024
 
 static adc_channel_t channel[] = {adc_channel_t(ADC1_GPIO34_CHANNEL)};
 
@@ -71,7 +71,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
     dig_cfg.pattern_num = channel_num;
     for (int i = 0; i < channel_num; i++)
     {
-        adc_pattern[i].atten = ADC_ATTEN_DB_2_5;
+        adc_pattern[i].atten = ADC_ATTEN_DB_11;
         adc_pattern[i].channel = channel[i] & 0x7;
         adc_pattern[i].unit = EXAMPLE_ADC_UNIT;
         adc_pattern[i].bit_width = EXAMPLE_ADC_BIT_WIDTH;
@@ -88,7 +88,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
 
 void adc_task(void)
 {
-    uart_set_baudrate(UART_NUM_0, 576000);
+    // uart_set_baudrate(UART_NUM_0, 576000);
 
     using json = nlohmann::json;
     using namespace std;
@@ -129,10 +129,10 @@ void adc_task(void)
 
         while (1)
         {
-            ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 0);
+            ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 1000);
             if (ret == ESP_OK)
             {
-                printf("readed %lu \r\n", ret_num);
+                // printf("readed %lu \r\n", ret_num);
                 adc_digi_output_data_t *p = reinterpret_cast<adc_digi_output_data_t *>(result);
                 for (int i = 0; i < ret_num / sizeof(adc_digi_output_data_t); i++)
                 {

@@ -24,40 +24,44 @@
 #include <stdio.h>
 
 #include <thread>
+#include <vector>
 
 #include "single_include/nlohmann/json.hpp"
+
+struct EmbedFile
+{
+    const char *start;
+    const char *end;
+};
+
+struct UriResponse
+{
+    const char *uri;
+    EmbedFile fl;
+};
 
 void adc_task(void);
 
 esp_err_t ws_callback(httpd_req_t *req);
-esp_err_t main_handler_callback(httpd_req_t *req);
-esp_err_t main_js_script_callback(httpd_req_t *req);
-esp_err_t style_css_callback(httpd_req_t *req);
+esp_err_t send_http_response(httpd_req_t *req);
 
 const char *TAG = "ws_echo_server";
 httpd_handle_t server = NULL;
 const size_t maxNumberOfClients = 8;
 
-const httpd_uri_t index_html_cb_header = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = main_handler_callback,
-    .user_ctx = NULL,
-    .is_websocket = false};
+extern const char index_html_start[] asm("_binary_index_html_start");
+extern const char index_html_end[] asm("_binary_index_html_end");
 
-const httpd_uri_t main_js_script_cb_header = {
-    .uri = "/main.js",
-    .method = HTTP_GET,
-    .handler = main_js_script_callback,
-    .user_ctx = NULL,
-    .is_websocket = false};
+extern const char main_js_start[] asm("_binary_main_js_start");
+extern const char main_js_end[] asm("_binary_main_js_end");
 
-const httpd_uri_t style_css_cb_header = {
-    .uri = "/style.css",
-    .method = HTTP_GET,
-    .handler = style_css_callback,
-    .user_ctx = NULL,
-    .is_websocket = false};
+extern const char style_css_start[] asm("_binary_style_css_start");
+extern const char style_css_end[] asm("_binary_style_css_end");
+
+std::vector<UriResponse> UriResponses = {
+    {"/", {index_html_start, index_html_end}},
+    {"/main.js", {main_js_start, main_js_end}},
+    {"/style.css", {style_css_start, style_css_end}}};
 
 const httpd_uri_t ws_cb_header = {
     .uri = "/ws",
@@ -66,43 +70,14 @@ const httpd_uri_t ws_cb_header = {
     .user_ctx = NULL,
     .is_websocket = true};
 
-esp_err_t main_handler_callback(httpd_req_t *req)
+esp_err_t send_http_response(httpd_req_t *req)
 {
-    esp_err_t ret = ESP_OK;
+    EmbedFile *ptr = reinterpret_cast<EmbedFile *>(req->user_ctx);
+    uint32_t size = ptr->end - ptr->start;
 
-    extern const unsigned char index_html_start[] asm("_binary_index_html_start");
-    extern const unsigned char index_html_end[] asm("_binary_index_html_end");
-    uint32_t ws_test_html_size = index_html_end - index_html_start;
-
-    httpd_resp_send_chunk(req, (const char *)index_html_start, ws_test_html_size);
+    httpd_resp_send_chunk(req, ptr->start, size);
     httpd_resp_sendstr_chunk(req, NULL);
-    return ret;
-}
-
-esp_err_t main_js_script_callback(httpd_req_t *req)
-{
-    esp_err_t ret = ESP_OK;
-
-    extern const unsigned char main_js_start[] asm("_binary_main_js_start");
-    extern const unsigned char main_js_end[] asm("_binary_main_js_end");
-    uint32_t size = main_js_end - main_js_start;
-
-    httpd_resp_send_chunk(req, (const char *)main_js_start, size);
-    httpd_resp_sendstr_chunk(req, NULL);
-    return ret;
-}
-
-esp_err_t style_css_callback(httpd_req_t *req)
-{
-    esp_err_t ret = ESP_OK;
-
-    extern const unsigned char style_css_start[] asm("_binary_style_css_start");
-    extern const unsigned char style_css_end[] asm("_binary_style_css_end");
-    uint32_t size = style_css_end - style_css_start;
-
-    httpd_resp_send_chunk(req, (const char *)style_css_start, size);
-    httpd_resp_sendstr_chunk(req, NULL);
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t ws_callback(httpd_req_t *req)
@@ -182,11 +157,18 @@ httpd_handle_t start_webserver(void)
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK)
     {
-        // Registering the ws handler
-        ESP_LOGI(TAG, "Registering URI handlers");
-        httpd_register_uri_handler(server, &index_html_cb_header);
-        httpd_register_uri_handler(server, &main_js_script_cb_header);
-        httpd_register_uri_handler(server, &style_css_cb_header);
+        httpd_uri_t CbHeader = {
+            .method = HTTP_GET,
+            .handler = send_http_response,
+            .is_websocket = false};
+
+        for (const auto &resp : UriResponses)
+        {
+            CbHeader.uri = resp.uri;
+            CbHeader.user_ctx = const_cast<EmbedFile *>(&resp.fl);
+            httpd_register_uri_handler(server, &CbHeader);
+        }
+
         httpd_register_uri_handler(server, &ws_cb_header);
 
         return server;
@@ -276,6 +258,7 @@ extern "C"
         ESP_ERROR_CHECK(example_connect());
 
         esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
+        default_cfg.stack_size = 4096;
         esp_pthread_set_cfg(&default_cfg);
         std::thread adc_task_handler(adc_task);
         adc_task_handler.detach();
