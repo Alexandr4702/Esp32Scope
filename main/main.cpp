@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "single_include/nlohmann/json.hpp"
+#include "wsInterface.pb.h"
 
 struct EmbedFile
 {
@@ -58,10 +59,18 @@ extern const char main_js_end[] asm("_binary_main_js_end");
 extern const char style_css_start[] asm("_binary_style_css_start");
 extern const char style_css_end[] asm("_binary_style_css_end");
 
+extern const char protobuf_js_start[] asm("_binary_protobuf_js_start");
+extern const char protobuf_js_end[] asm("_binary_protobuf_js_end");
+
+extern const char wsInterface_pb_js_start[] asm("_binary_wsInterface_pb_js_start");
+extern const char wsInterface_pb_js_end[] asm("_binary_wsInterface_pb_js_end");
+
 std::vector<UriResponse> UriResponses = {
     {"/", {index_html_start, index_html_end}},
     {"/main.js", {main_js_start, main_js_end}},
-    {"/style.css", {style_css_start, style_css_end}}};
+    {"/style.css", {style_css_start, style_css_end}},
+    {"/protobuf.js", {protobuf_js_start, protobuf_js_end}},
+    {"/wsInterface_pb.js", {wsInterface_pb_js_start, wsInterface_pb_js_end}}};
 
 const httpd_uri_t ws_cb_header = {
     .uri = "/ws",
