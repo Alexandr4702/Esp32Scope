@@ -16,26 +16,17 @@
 #include "driver/uart.h"
 
 #include "single_include/nlohmann/json.hpp"
+#include "wsInterface.pb.h"
 
-#define EXAMPLE_ADC_UNIT ADC_UNIT_1
 #define _EXAMPLE_ADC_UNIT_STR(unit) #unit
 #define EXAMPLE_ADC_UNIT_STR(unit) _EXAMPLE_ADC_UNIT_STR(unit)
-#define EXAMPLE_ADC_CONV_MODE ADC_CONV_SINGLE_UNIT_1
-#define EXAMPLE_ADC_BIT_WIDTH SOC_ADC_DIGI_MAX_BITWIDTH
 
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
-#define EXAMPLE_ADC_OUTPUT_TYPE ADC_DIGI_OUTPUT_FORMAT_TYPE1
-#define EXAMPLE_ADC_GET_CHANNEL(p_data) ((p_data)->type1.channel)
-#define EXAMPLE_ADC_GET_DATA(p_data) ((p_data)->type1.data)
-#else
-#define EXAMPLE_ADC_OUTPUT_TYPE ADC_DIGI_OUTPUT_FORMAT_TYPE2
-#define EXAMPLE_ADC_GET_CHANNEL(p_data) ((p_data)->type2.channel)
-#define EXAMPLE_ADC_GET_DATA(p_data) ((p_data)->type2.data)
-#endif
-
-#define EXAMPLE_READ_LEN 1024
 
 static adc_channel_t channel[] = {adc_channel_t(ADC1_GPIO34_CHANNEL)};
+
+size_t EXAMPLE_READ_LEN = 1024;
+adc_unit_t AdcUnit = ADC_UNIT_1;
+adc_atten_t AdcAtten = ADC_ATTEN_DB_11;
 
 static TaskHandle_t s_task_handle;
 static const char *TAG = "EXAMPLE";
@@ -63,8 +54,8 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
 
     adc_continuous_config_t dig_cfg = {
         .sample_freq_hz = 20 * 1000,
-        .conv_mode = EXAMPLE_ADC_CONV_MODE,
-        .format = EXAMPLE_ADC_OUTPUT_TYPE,
+        .conv_mode = ADC_CONV_SINGLE_UNIT_1,
+        .format = ADC_DIGI_OUTPUT_FORMAT_TYPE1,
     };
 
     adc_digi_pattern_config_t adc_pattern[SOC_ADC_PATT_LEN_MAX] = {0};
@@ -73,8 +64,8 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
     {
         adc_pattern[i].atten = ADC_ATTEN_DB_11;
         adc_pattern[i].channel = channel[i] & 0x7;
-        adc_pattern[i].unit = EXAMPLE_ADC_UNIT;
-        adc_pattern[i].bit_width = EXAMPLE_ADC_BIT_WIDTH;
+        adc_pattern[i].unit = AdcUnit;
+        adc_pattern[i].bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
 
         ESP_LOGI(TAG, "adc_pattern[%d].atten is :%" PRIx8, i, adc_pattern[i].atten);
         ESP_LOGI(TAG, "adc_pattern[%d].channel is :%" PRIx8, i, adc_pattern[i].channel);
@@ -129,17 +120,17 @@ void adc_task(void)
 
         while (1)
         {
-            ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 1000);
+            ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, portMAX_DELAY);
             if (ret == ESP_OK)
             {
                 // printf("readed %lu \r\n", ret_num);
                 adc_digi_output_data_t *p = reinterpret_cast<adc_digi_output_data_t *>(result);
                 for (int i = 0; i < ret_num / sizeof(adc_digi_output_data_t); i++)
                 {
-                    uint32_t chan_num = EXAMPLE_ADC_GET_CHANNEL(p + i);
-                    uint32_t data = EXAMPLE_ADC_GET_DATA(p + i);
+                    uint32_t chan_num = (p + i)->type1.channel;
+                    uint32_t data = (p + i)->type1.data;
                     /* Check the channel number validation, the data is invalid if the channel num exceed the maximum channel */
-                    if (chan_num < SOC_ADC_CHANNEL_NUM(EXAMPLE_ADC_UNIT))
+                    if (chan_num < SOC_ADC_CHANNEL_NUM(AdcUnit))
                     {
                         data_to_send[i] = data;
                     }

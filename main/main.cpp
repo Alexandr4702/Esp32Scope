@@ -27,6 +27,9 @@
 #include <vector>
 
 #include "single_include/nlohmann/json.hpp"
+
+#include <pb_encode.h>
+#include <pb_decode.h>
 #include "wsInterface.pb.h"
 
 struct EmbedFile
@@ -53,24 +56,20 @@ const size_t maxNumberOfClients = 8;
 extern const char index_html_start[] asm("_binary_index_html_start");
 extern const char index_html_end[] asm("_binary_index_html_end");
 
-extern const char main_js_start[] asm("_binary_main_js_start");
-extern const char main_js_end[] asm("_binary_main_js_end");
+extern const char bundle_js_start[] asm("_binary_bundle_js_start");
+extern const char bundle_js_end[] asm("_binary_bundle_js_end");
 
 extern const char style_css_start[] asm("_binary_style_css_start");
 extern const char style_css_end[] asm("_binary_style_css_end");
 
-extern const char protobuf_js_start[] asm("_binary_protobuf_js_start");
-extern const char protobuf_js_end[] asm("_binary_protobuf_js_end");
-
-extern const char wsInterface_pb_js_start[] asm("_binary_wsInterface_pb_js_start");
-extern const char wsInterface_pb_js_end[] asm("_binary_wsInterface_pb_js_end");
-
 std::vector<UriResponse> UriResponses = {
     {"/", {index_html_start, index_html_end}},
-    {"/main.js", {main_js_start, main_js_end}},
+    {"/bundle.js", {bundle_js_start, bundle_js_end}},
     {"/style.css", {style_css_start, style_css_end}},
-    {"/protobuf.js", {protobuf_js_start, protobuf_js_end}},
-    {"/wsInterface_pb.js", {wsInterface_pb_js_start, wsInterface_pb_js_end}}};
+    // {"/protobuf.js", {protobuf_js_start, protobuf_js_end}},
+    // {"/wsInterface_pb.js", {wsInterface_pb_js_start, wsInterface_pb_js_end}},
+    // {"/protobuf.js.map", {protobuf_js_map_start, protobuf_js_map_end}},
+    };
 
 const httpd_uri_t ws_cb_header = {
     .uri = "/ws",
@@ -238,7 +237,7 @@ void sendWsData2Clients(const void *data, const size_t size_of_data)
                 httpd_ws_frame_t to_send;
                 to_send.final = 1;
                 to_send.fragmented = 0;
-                to_send.type = HTTPD_WS_TYPE_TEXT;
+                to_send.type = HTTPD_WS_TYPE_BINARY;
                 to_send.payload = reinterpret_cast<uint8_t *>(const_cast<void *>(data));
                 to_send.len = size_of_data;
                 if (httpd_ws_send_frame_async(server, sockets[i], &to_send) == ESP_OK)
@@ -250,6 +249,49 @@ void sendWsData2Clients(const void *data, const size_t size_of_data)
                 }
             }
         }
+    }
+}
+
+bool TextCallback(pb_ostream_t *stream, const pb_field_t *field, void * const *arg)
+{
+    if (!pb_encode_tag_for_field(stream, field))
+        return false;
+    return pb_encode_string(stream, (const pb_byte_t *) *arg, strlen((const char* )*arg));
+}
+
+void taskTestProtobuf()
+{
+    const size_t buffer_size = 256;
+    uint8_t buffer[buffer_size];
+    size_t message_length;
+    bool status;
+    printf("thread started \n");
+    while (1)
+    {
+        pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+
+        AdcDataTest2 message = AdcDataTest2_init_zero;
+        message.index[0] = 1;
+        message.index[1] = 2;
+        message.index[2] = 3;
+        message.index[3] = 4;
+        message.index_count = 4;
+
+        status = pb_encode(&stream, AdcDataTest2_fields, &message);
+        message_length = stream.bytes_written;
+        if(status)
+        {
+            printf("Lenght: %u\r\n", message_length);
+            for(size_t i = 0; i < message_length; i++) {
+                printf("%02hX ", buffer[i]);
+            }
+            printf("\r\n");
+            sendWsData2Clients(buffer, message_length);
+        } else
+        {
+            printf("Errors during encoding\r\n");
+        }
+        vTaskDelay(100);
     }
 }
 
@@ -269,7 +311,7 @@ extern "C"
         esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
         default_cfg.stack_size = 4096;
         esp_pthread_set_cfg(&default_cfg);
-        std::thread adc_task_handler(adc_task);
+        std::thread adc_task_handler(taskTestProtobuf);
         adc_task_handler.detach();
 
         vTaskDelete(NULL);

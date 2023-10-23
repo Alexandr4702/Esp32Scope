@@ -1,4 +1,7 @@
+const proto = require('./wsInterface_pb.js');
+
 let host_addres = window.location.host;
+host_addres = "192.168.0.20";
 let web_socket_uri = "ws://" + host_addres + "/ws";
 console.log(web_socket_uri);
 let socket = new WebSocket(web_socket_uri);
@@ -71,11 +74,20 @@ function updateChart(newADCValues) {
     uptime++;
 }
 
-socket.onmessage = function (event) {
+socket.onmessage = async function (event) {
 
-    let jsonObject = JSON.parse(event.data);
-    console.log(jsonObject.Ch1Data);
-    updateChart(jsonObject.Ch1Data);
+    // let jsonObject = JSON.parse(event.data);
+    // console.log(jsonObject.Ch1Data);
+    // updateChart(jsonObject.Ch1Data);
+
+    let array = await event.data.arrayBuffer();
+    // console.log(array);
+    // console.log(event.data);
+    console.log("lenght: ", event.data.size);
+    const decodedMessage = proto.AdcDataTest2.deserializeBinary(array);
+    let obj = decodedMessage.toObject();
+    console.log(obj);
+
 };
 
 // Function to draw the chart axes

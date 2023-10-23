@@ -1,1 +1,8 @@
 build
+main/webPage/node_modules
+main/proto/wsInterface.pb.c
+main/proto/wsInterface.pb.h
+main/webPage/wsInterface_pb.js
+main/webPage/package-lock.json
+main/webPage/bundle.js
+sdkconfig.old
