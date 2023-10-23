@@ -44,7 +44,9 @@ struct UriResponse
     EmbedFile fl;
 };
 
-void adc_task(void);
+void adc_task_json_data_sender(void);
+void adc_task_protobuf_uint32_data_sender(void);
+void adc_task_protobuf_bytes_data_sender(void);
 
 esp_err_t ws_callback(httpd_req_t *req);
 esp_err_t send_http_response(httpd_req_t *req);
@@ -263,8 +265,7 @@ void taskTestProtobuf()
 {
     const size_t buffer_size = 256;
     uint8_t buffer[buffer_size];
-    size_t message_length;
-    bool status;
+
     printf("thread started \n");
     while (1)
     {
@@ -277,8 +278,8 @@ void taskTestProtobuf()
         message.index[3] = 4;
         message.index_count = 4;
 
-        status = pb_encode(&stream, AdcDataTest2_fields, &message);
-        message_length = stream.bytes_written;
+        bool status = pb_encode(&stream, AdcDataTest2_fields, &message);
+        size_t message_length = stream.bytes_written;
         if(status)
         {
             printf("Lenght: %u\r\n", message_length);
@@ -309,9 +310,9 @@ extern "C"
         ESP_ERROR_CHECK(example_connect());
 
         esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
-        default_cfg.stack_size = 4096;
+        default_cfg.stack_size = 4096 * 2;
         esp_pthread_set_cfg(&default_cfg);
-        std::thread adc_task_handler(taskTestProtobuf);
+        std::thread adc_task_handler(adc_task_protobuf_bytes_data_sender);
         adc_task_handler.detach();
 
         vTaskDelete(NULL);

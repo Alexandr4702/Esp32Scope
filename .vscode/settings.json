@@ -82,7 +82,9 @@
     "variant": "cpp",
     "bitset": "cpp",
     "regex": "cpp",
-    "simple.pb.h": "c"
+    "simple.pb.h": "c",
+    "complex": "cpp",
+    "future": "cpp"
   },
   "idf.openOcdConfigs": [
     "board/esp32-wrover-kit-3.3v.cfg"

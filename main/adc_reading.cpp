@@ -16,20 +16,22 @@
 #include "driver/uart.h"
 
 #include "single_include/nlohmann/json.hpp"
+
+#include <pb_encode.h>
+#include <pb_decode.h>
 #include "wsInterface.pb.h"
 
 #define _EXAMPLE_ADC_UNIT_STR(unit) #unit
 #define EXAMPLE_ADC_UNIT_STR(unit) _EXAMPLE_ADC_UNIT_STR(unit)
 
-
 static adc_channel_t channel[] = {adc_channel_t(ADC1_GPIO34_CHANNEL)};
 
-size_t EXAMPLE_READ_LEN = 1024;
+size_t ReadLen = 256;
 adc_unit_t AdcUnit = ADC_UNIT_1;
 adc_atten_t AdcAtten = ADC_ATTEN_DB_11;
 
 static TaskHandle_t s_task_handle;
-static const char *TAG = "EXAMPLE";
+static const char *TAG = __FILE__;
 
 void sendWsData2Clients(const void *data, const size_t size_of_data);
 
@@ -48,7 +50,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
 
     adc_continuous_handle_cfg_t adc_config = {
         .max_store_buf_size = 1024,
-        .conv_frame_size = EXAMPLE_READ_LEN,
+        .conv_frame_size = ReadLen,
     };
     ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &handle));
 
@@ -77,20 +79,18 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
     *out_handle = handle;
 }
 
-void adc_task(void)
+void adc_task_json_data_sender(void)
 {
-    // uart_set_baudrate(UART_NUM_0, 576000);
-
     using json = nlohmann::json;
     using namespace std;
     json test;
 
-    std::vector<uint16_t> data_to_send(EXAMPLE_READ_LEN / sizeof(adc_digi_output_data_t));
+    std::vector<uint16_t> data_to_send(ReadLen / sizeof(adc_digi_output_data_t));
 
     esp_err_t ret;
     uint32_t ret_num = 0;
-    uint8_t result[EXAMPLE_READ_LEN] = {0};
-    memset(result, 0xcc, EXAMPLE_READ_LEN);
+    uint8_t result[ReadLen] = {0};
+    memset(result, 0xcc, ReadLen);
 
     s_task_handle = xTaskGetCurrentTaskHandle();
 
@@ -120,7 +120,7 @@ void adc_task(void)
 
         while (1)
         {
-            ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, portMAX_DELAY);
+            ret = adc_continuous_read(handle, result, ReadLen, &ret_num, portMAX_DELAY);
             if (ret == ESP_OK)
             {
                 // printf("readed %lu \r\n", ret_num);
@@ -140,6 +140,131 @@ void adc_task(void)
                 uint32_t len = data.size();
                 sendWsData2Clients(data.c_str(), len);
                 vTaskDelay(1);
+            }
+            else if (ret == ESP_ERR_TIMEOUT)
+            {
+                // We try to read `EXAMPLE_READ_LEN` until API returns timeout, which means there's no available data
+                break;
+            }
+        }
+    }
+
+    ESP_ERROR_CHECK(adc_continuous_stop(handle));
+    ESP_ERROR_CHECK(adc_continuous_deinit(handle));
+}
+
+void adc_task_protobuf_uint32_data_sender(void)
+{
+    using namespace std;
+
+    esp_err_t ret;
+    uint32_t ret_num = 0;
+    uint8_t result[ReadLen] = {0};
+    memset(result, 0xcc, ReadLen);
+
+    const size_t protobuf_buffer_size = 768;
+    uint8_t protobuf_buffer[protobuf_buffer_size];
+
+    s_task_handle = xTaskGetCurrentTaskHandle();
+
+    adc_continuous_handle_t handle = NULL;
+    continuous_adc_init(channel, sizeof(channel) / sizeof(adc_channel_t), &handle);
+
+    adc_continuous_evt_cbs_t cbs = {
+        .on_conv_done = s_conv_done_cb,
+    };
+
+    ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(handle, &cbs, NULL));
+    ESP_ERROR_CHECK(adc_continuous_start(handle));
+
+    while (1)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (1)
+        {
+            AdcDataTest2 proto_message = AdcDataTest2_init_zero;
+
+            ret = adc_continuous_read(handle, result, ReadLen, &ret_num, portMAX_DELAY);
+            if (ret == ESP_OK)
+            {
+                // printf("readed %lu \r\n", ret_num);
+                adc_digi_output_data_t *p = reinterpret_cast<adc_digi_output_data_t *>(result);
+                for (int i = 0; i < ret_num / sizeof(adc_digi_output_data_t); i++)
+                {
+                    uint32_t chan_num = (p + i)->type1.channel;
+                    uint32_t data = (p + i)->type1.data;
+                    /* Check the channel number validation, the data is invalid if the channel num exceed the maximum channel */
+                    if (chan_num < SOC_ADC_CHANNEL_NUM(AdcUnit))
+                    {
+                        proto_message.index[i] = data;
+                    }
+                }
+                proto_message.index_count = ret_num / sizeof(adc_digi_output_data_t);
+                pb_ostream_t stream = pb_ostream_from_buffer(protobuf_buffer, sizeof(protobuf_buffer));
+
+                bool status = pb_encode(&stream, AdcDataTest2_fields, &proto_message);
+                size_t message_length = stream.bytes_written;
+
+                sendWsData2Clients(protobuf_buffer, message_length);
+                // vTaskDelay(1);
+            }
+            else if (ret == ESP_ERR_TIMEOUT)
+            {
+                // We try to read `EXAMPLE_READ_LEN` until API returns timeout, which means there's no available data
+                break;
+            }
+        }
+    }
+
+    ESP_ERROR_CHECK(adc_continuous_stop(handle));
+    ESP_ERROR_CHECK(adc_continuous_deinit(handle));
+}
+
+void adc_task_protobuf_bytes_data_sender(void)
+{
+    using namespace std;
+
+    esp_err_t ret;
+    uint32_t ret_num = 0;
+    uint8_t result[ReadLen] = {0};
+    memset(result, 0xcc, ReadLen);
+
+    const size_t protobuf_buffer_size = 768;
+    uint8_t protobuf_buffer[protobuf_buffer_size];
+
+    s_task_handle = xTaskGetCurrentTaskHandle();
+
+    adc_continuous_handle_t handle = NULL;
+    continuous_adc_init(channel, sizeof(channel) / sizeof(adc_channel_t), &handle);
+
+    adc_continuous_evt_cbs_t cbs = {
+        .on_conv_done = s_conv_done_cb,
+    };
+
+    ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(handle, &cbs, NULL));
+    ESP_ERROR_CHECK(adc_continuous_start(handle));
+
+    while (1)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (1)
+        {
+            AdcDataTest3 proto_message = AdcDataTest3_init_zero;
+
+            ret = adc_continuous_read(handle, proto_message.index.bytes, ReadLen, &ret_num, portMAX_DELAY);
+            if (ret == ESP_OK)
+            {
+
+                proto_message.index.size = ret_num / sizeof(adc_digi_output_data_t);
+                pb_ostream_t stream = pb_ostream_from_buffer(protobuf_buffer, sizeof(protobuf_buffer));
+
+                bool status = pb_encode(&stream, AdcDataTest3_fields, &proto_message);
+                size_t message_length = stream.bytes_written;
+
+                sendWsData2Clients(protobuf_buffer, message_length);
+                // vTaskDelay(1);
             }
             else if (ret == ESP_ERR_TIMEOUT)
             {

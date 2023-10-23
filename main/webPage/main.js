@@ -84,10 +84,11 @@ socket.onmessage = async function (event) {
     // console.log(array);
     // console.log(event.data);
     console.log("lenght: ", event.data.size);
-    const decodedMessage = proto.AdcDataTest2.deserializeBinary(array);
+    const decodedMessage = proto.AdcDataTest3.deserializeBinary(array);
     let obj = decodedMessage.toObject();
     console.log(obj);
 
+    // updateChart(obj.indexList);
 };
 
 // Function to draw the chart axes
