@@ -3,7 +3,6 @@ syntax = "proto3";
 option optimize_for = LITE_RUNTIME;
 option cc_enable_arenas = false;
 
-
 message TestRequest {
     string text = 1;
     uint32 index = 2;
@@ -18,5 +17,6 @@ message AdcDataTest2 {
 }
 
 message AdcDataTest3 {
-    bytes index = 1;//  [(nanopb).max_size = 512];
+    bytes adcData = 1;//  [(nanopb).max_size = 512];
+    int32 numberOfdata = 2;
 }

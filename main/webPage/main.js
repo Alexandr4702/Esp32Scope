@@ -1,10 +1,23 @@
 const proto = require('./wsInterface_pb.js');
 
 let host_addres = window.location.host;
-host_addres = "192.168.0.20";
+host_addres = "192.168.0.27";
 let web_socket_uri = "ws://" + host_addres + "/ws";
 console.log(web_socket_uri);
 let socket = new WebSocket(web_socket_uri);
+
+function getPageUptime() {
+    // Get the time when the page was loaded
+    var loadTime = new Date(performance.timing.navigationStart);
+
+    // Get the current time
+    var currentTime = new Date();
+
+    // Calculate the uptime in milliseconds
+    var uptime = currentTime - loadTime;
+
+    return uptime / 1000;
+}
 
 socket.onopen = function (e) {
 
@@ -40,6 +53,7 @@ var xAxisPos, yAxisPos;
 
 // Variable to track uptime
 var uptime = 0;
+let totalNumberOfRecivedSmp = 0;
 
 // Define a function to update the chart
 function updateChart(newADCValues) {
@@ -81,14 +95,27 @@ socket.onmessage = async function (event) {
     // updateChart(jsonObject.Ch1Data);
 
     let array = await event.data.arrayBuffer();
-    // console.log(array);
-    // console.log(event.data);
-    console.log("lenght: ", event.data.size);
-    const decodedMessage = proto.AdcDataTest3.deserializeBinary(array);
-    let obj = decodedMessage.toObject();
-    console.log(obj);
 
-    // updateChart(obj.indexList);
+    const decodedMessage = proto.AdcDataTest3.deserializeBinary(array);
+
+    // return;
+    let adc_rec_8 = decodedMessage.getAdcdata_asU8();
+    let adc_rec_16 = new Uint16Array(adc_rec_8.length / 2);
+
+    adc_data = [];
+
+    for (let i = 0; i < adc_rec_8.length / 2; i++) {
+        adc_data.push((adc_rec_8[i * 2] | (adc_rec_8[i * 2 + 1] << 8)) & 0x3ff);
+        // adc_rec_16[i] = i;
+        // adc_data.push(i);
+    }
+
+    let uptime_s = getPageUptime();
+    totalNumberOfRecivedSmp += adc_data.length;
+
+    console.log(totalNumberOfRecivedSmp / uptime_s);
+
+    updateChart(adc_data);
 };
 
 // Function to draw the chart axes

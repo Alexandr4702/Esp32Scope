@@ -310,7 +310,7 @@ extern "C"
         ESP_ERROR_CHECK(example_connect());
 
         esp_pthread_cfg_t default_cfg = esp_pthread_get_default_config();
-        default_cfg.stack_size = 4096 * 2;
+        default_cfg.stack_size = 4096 * 16;
         esp_pthread_set_cfg(&default_cfg);
         std::thread adc_task_handler(adc_task_protobuf_bytes_data_sender);
         adc_task_handler.detach();
