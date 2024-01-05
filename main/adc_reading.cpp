@@ -56,7 +56,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
     ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &handle));
 
     adc_continuous_config_t dig_cfg = {
-        .sample_freq_hz = 100 * 1000,
+        .sample_freq_hz = 50 * 1000,
         .conv_mode = ADC_CONV_SINGLE_UNIT_1,
         .format = ADC_DIGI_OUTPUT_FORMAT_TYPE1,
     };
@@ -232,7 +232,9 @@ void adc_task_protobuf_bytes_data_sender(void)
         AdcDataTest3 proto_message = AdcDataTest3_init_zero;
 
         esp_err_t ret = adc_continuous_read(handle, proto_message.adcData.bytes, ReadLen, &ret_num, portMAX_DELAY);
-
+        // adc_digi_output_data_t *p = reinterpret_cast<adc_digi_output_data_t*> (proto_message.adcData.bytes);
+        // uint16_t* p_16 = reinterpret_cast<uint16_t*> (proto_message.adcData.bytes);
+        // printf("chanel %hu %hu %hu %hu \r\n", p[0].type1.channel, (p_16[0] & 0xF000) >> 12, p[0].type1.data, (p_16[0] & 0x0fff));
 
         if (ret == ESP_OK)
         {

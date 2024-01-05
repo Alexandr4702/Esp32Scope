@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "dygraphs": "^2.2.1",
     "google-protobuf": "^3.21.2"
   }
 }
