@@ -22,9 +22,10 @@
             <article><span>Time window</span><strong id="window-time">—</strong><small id="window-time-unit">ms</small></article>
         </section>
 
+        <div class="workspace">
         <section class="scope-card">
             <div class="scope-toolbar">
-                <span>Channel 1</span>
+                <div class="channel-legend" id="channel-legend"></div>
                 <div class="actions">
                     <button id="pause" type="button">Pause</button>
                     <button id="clear" type="button" class="secondary">Clear</button>
@@ -41,7 +42,7 @@
                 <output id="history-size-value" for="history-size">—</output>
             </label>
             <input type="range" min="500" max="20000" step="500" value="8000" id="history-size">
-            <div class="range-labels"><span>500</span><span>20 000</span></div>
+            <div class="range-labels"><span>Shorter</span><span>Longer</span></div>
             <div class="scale-row">
                 <label for="sample-rate-control"><span>Sample rate</span></label>
                 <select id="sample-rate-control">
@@ -73,14 +74,17 @@
                 </select>
                 <small>DMA bandwidth remains 16 bits per sample.</small>
             </div>
-            <div class="scale-row">
-                <label for="adc-pin"><span>ADC input</span></label>
-                <select id="adc-pin">
-                    <option value="32">GPIO32</option><option value="33">GPIO33</option>
-                    <option value="34" selected>GPIO34</option><option value="35">GPIO35</option>
-                    <option value="36">GPIO36</option><option value="39">GPIO39</option>
-                </select>
-                <small>ADC1 only; ADC2 cannot be used reliably together with Wi-Fi.</small>
+            <div class="scale-row channel-picker">
+                <label><span>ADC1 channels</span></label>
+                <div id="channel-picker">
+                    <label><input type="checkbox" value="32">GPIO32</label>
+                    <label><input type="checkbox" value="33">GPIO33</label>
+                    <label><input type="checkbox" value="34" checked>GPIO34</label>
+                    <label><input type="checkbox" value="35">GPIO35</label>
+                    <label><input type="checkbox" value="36">GPIO36</label>
+                    <label><input type="checkbox" value="39">GPIO39</label>
+                </div>
+                <small>The total sample rate is shared between active channels.</small>
             </div>
             <div class="scale-row">
                 <label for="adc-attenuation"><span>Input range</span></label>
@@ -91,6 +95,7 @@
                 <small>Higher attenuation allows a higher input voltage.</small>
             </div>
         </section>
+        </div>
     </main>
     <script src="main.js"></script>
 </body>

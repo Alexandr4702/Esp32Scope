@@ -84,7 +84,7 @@ esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
 
     constexpr char rate_prefix[] = "rate:";
     constexpr char bits_prefix[] = "bits:";
-    constexpr char pin_prefix[] = "pin:";
+    constexpr char channels_prefix[] = "channels:";
     constexpr char atten_prefix[] = "atten:";
     uint32_t requested_value = 0;
     const char *response_prefix = nullptr;
@@ -112,17 +112,15 @@ esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
         response_prefix = "bits:";
         value = server->sample_rate_control_.set_bit_width(
             server->sample_rate_control_.context, requested_value);
-    } else if (std::strncmp(payload, pin_prefix, sizeof(pin_prefix) - 1) == 0) {
-        const char *begin = payload + sizeof(pin_prefix) - 1;
+    } else if (std::strncmp(payload, channels_prefix, sizeof(channels_prefix) - 1) == 0) {
+        const char *begin = payload + sizeof(channels_prefix) - 1;
         const char *end = payload + frame.len;
         const auto result = std::from_chars(begin, end, requested_value);
-        const bool valid_gpio = requested_value == 32 || requested_value == 33 ||
-            requested_value == 34 || requested_value == 35 ||
-            requested_value == 36 || requested_value == 39;
-        if (result.ec != std::errc{} || result.ptr != end || !valid_gpio ||
-            server->sample_rate_control_.set_gpio == nullptr) return ESP_ERR_INVALID_ARG;
-        response_prefix = "pin:";
-        value = server->sample_rate_control_.set_gpio(
+        if (result.ec != std::errc{} || result.ptr != end ||
+            requested_value < 1 || requested_value > 63 ||
+            server->sample_rate_control_.set_channels == nullptr) return ESP_ERR_INVALID_ARG;
+        response_prefix = "channels:";
+        value = server->sample_rate_control_.set_channels(
             server->sample_rate_control_.context, requested_value);
     } else if (std::strncmp(payload, atten_prefix, sizeof(atten_prefix) - 1) == 0) {
         const char *begin = payload + sizeof(atten_prefix) - 1;
@@ -142,10 +140,10 @@ esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
         response_prefix = "bits:";
         value = server->sample_rate_control_.set_bit_width(
             server->sample_rate_control_.context, 0);
-    } else if (std::strcmp(payload, "get_pin") == 0 &&
-               server->sample_rate_control_.set_gpio != nullptr) {
-        response_prefix = "pin:";
-        value = server->sample_rate_control_.set_gpio(
+    } else if (std::strcmp(payload, "get_channels") == 0 &&
+               server->sample_rate_control_.set_channels != nullptr) {
+        response_prefix = "channels:";
+        value = server->sample_rate_control_.set_channels(
             server->sample_rate_control_.context, 0);
     } else if (std::strcmp(payload, "get_atten") == 0 &&
                server->sample_rate_control_.set_attenuation != nullptr) {

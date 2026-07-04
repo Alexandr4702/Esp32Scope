@@ -15,10 +15,11 @@ class AdcStream final {
 public:
     AdcStream(DataSink sink, std::atomic<uint32_t> &requested_sample_rate,
               std::atomic<uint8_t> &requested_bit_width,
-              std::atomic<uint8_t> &requested_gpio,
+              std::atomic<uint8_t> &requested_channel_mask,
               std::atomic<uint8_t> &requested_attenuation) noexcept
         : sink_(sink), requested_sample_rate_(requested_sample_rate),
-          requested_bit_width_(requested_bit_width), requested_gpio_(requested_gpio),
+          requested_bit_width_(requested_bit_width),
+          requested_channel_mask_(requested_channel_mask),
           requested_attenuation_(requested_attenuation) {}
 
     AdcStream(const AdcStream &) = delete;
@@ -30,7 +31,7 @@ private:
     DataSink sink_;
     std::atomic<uint32_t> &requested_sample_rate_;
     std::atomic<uint8_t> &requested_bit_width_;
-    std::atomic<uint8_t> &requested_gpio_;
+    std::atomic<uint8_t> &requested_channel_mask_;
     std::atomic<uint8_t> &requested_attenuation_;
 };
 

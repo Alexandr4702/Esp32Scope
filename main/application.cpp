@@ -22,7 +22,7 @@ void scope::Application::start() noexcept
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     initialize_mdns();
     web_server_.set_sample_rate_control(
-        {this, sample_rate, bit_width, gpio, attenuation});
+        {this, sample_rate, bit_width, channels, attenuation});
 
     wifi_.start({this, connection_started, connection_stopped});
 
@@ -69,11 +69,11 @@ uint8_t scope::Application::bit_width(void *context,
     return application->requested_bit_width_.load();
 }
 
-uint8_t scope::Application::gpio(void *context, uint8_t requested_gpio) noexcept
+uint8_t scope::Application::channels(void *context, uint8_t requested_mask) noexcept
 {
     auto *application = static_cast<Application *>(context);
-    if (requested_gpio != 0) application->requested_gpio_.store(requested_gpio);
-    return application->requested_gpio_.load();
+    if (requested_mask != 0) application->requested_channel_mask_.store(requested_mask);
+    return application->requested_channel_mask_.load();
 }
 
 uint8_t scope::Application::attenuation(void *context,
@@ -111,7 +111,8 @@ void scope::Application::initialize_mdns() noexcept
     auto *application = static_cast<Application *>(context);
     AdcStream stream{{application, send_samples},
                      application->requested_sample_rate_,
-                     application->requested_bit_width_, application->requested_gpio_,
+                     application->requested_bit_width_,
+                     application->requested_channel_mask_,
                      application->requested_attenuation_};
     stream.run();
 }

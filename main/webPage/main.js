@@ -8,13 +8,15 @@ const pauseButton = $("pause");
 const verticalScale = $("vertical-scale");
 const sampleRateControl = $("sample-rate-control");
 const bitWidthControl = $("bit-width");
-const adcPinControl = $("adc-pin");
+const channelInputs = [...document.querySelectorAll("#channel-picker input")];
 const attenuationControl = $("adc-attenuation");
 
 const sampleCapacity = Number(historySlider.max);
-const samples = new Uint16Array(sampleCapacity);
-let sampleStart = 0;
-let sampleCount = 0;
+const samples = Array.from({ length: 6 }, () => new Uint16Array(sampleCapacity));
+const sampleStarts = Array(6).fill(0);
+const sampleCounts = Array(6).fill(0);
+let activeChannelCount = 1;
+let activeGpios = [34];
 let maxDataPoints = Number(historySlider.value);
 let socket = null;
 let reconnectTimer = null;
@@ -77,7 +79,7 @@ function connect() {
         setStatus(paused ? "paused" : "online", paused ? "Paused" : "Connected");
         socket.send("get_rate");
         socket.send("get_bits");
-        socket.send("get_pin");
+        socket.send("get_channels");
         socket.send("get_atten");
     });
     socket.addEventListener("message", event => {
@@ -95,9 +97,8 @@ function connect() {
                     adcMaximum = 2 ** bits - 1;
                     $("full-scale-option").textContent = `Full scale (0–${adcMaximum})`;
                     scheduleDraw();
-                } else if (event.data.startsWith("pin:")) {
-                    adcPinControl.value = event.data.slice(4);
-                    $("input-pin-label").textContent = `GPIO${adcPinControl.value}`;
+                } else if (event.data.startsWith("channels:")) {
+                    applyChannelMask(Number(event.data.slice(9)));
                 } else if (event.data.startsWith("atten:")) {
                     attenuationControl.value = event.data.slice(6);
                 }
@@ -105,9 +106,10 @@ function connect() {
             }
             const packet = decodeAdcData(new Uint8Array(event.data));
             const decoded = unpackSamples(packet);
-            rateCounter += decoded.length;
+            rateCounter += decoded.totalCount;
             if (!paused) {
-                appendSamples(decoded);
+                activeChannelCount = decoded.channels.length;
+                decoded.channels.forEach((values, channel) => appendSamples(channel, values));
                 scheduleDraw();
             }
             updateRate();
@@ -124,50 +126,88 @@ function connect() {
 }
 
 function unpackSamples(packet) {
-    if (packet.length < 4 || packet[0] !== 0xa5) {
+    if (packet.length < 12 || packet[0] !== 0xa5) {
         throw new Error("Unsupported ADC packet format");
     }
     const bits = packet[1];
-    const count = packet[2] | (packet[3] << 8);
-    if (bits < 9 || bits > 12 || packet.length < 4 + Math.ceil(count * bits / 8)) {
+    const channelCount = packet[2];
+    const gpios = [...packet.subarray(3, 3 + channelCount)];
+    const firstChannel = packet[9];
+    const count = packet[10] | (packet[11] << 8);
+    if (bits < 9 || bits > 12 || channelCount < 1 || channelCount > 6 ||
+        firstChannel >= channelCount || packet.length < 12 + Math.ceil(count * bits / 8)) {
         throw new Error("Invalid packed ADC payload");
     }
-    const result = new Uint16Array(count);
+    const channels = Array.from({ length: channelCount }, () =>
+        new Uint16Array(Math.ceil(count / channelCount)));
+    const positions = new Uint32Array(channelCount);
     const mask = 2 ** bits - 1;
     let accumulator = 0;
     let accumulatedBits = 0;
-    let offset = 4;
+    let offset = 12;
     for (let i = 0; i < count; i++) {
         while (accumulatedBits < bits) {
             accumulator += packet[offset++] * 2 ** accumulatedBits;
             accumulatedBits += 8;
         }
-        result[i] = accumulator & mask;
+        const channel = (firstChannel + i) % channelCount;
+        channels[channel][positions[channel]++] = accumulator & mask;
         accumulator = Math.floor(accumulator / 2 ** bits);
         accumulatedBits -= bits;
     }
-    return result;
+    if (gpios.join() !== activeGpios.join()) {
+        sampleStarts.fill(0);
+        sampleCounts.fill(0);
+    }
+    activeGpios = gpios;
+    updateChannelLegend();
+    return { channels: channels.map((values, channel) => values.subarray(0, positions[channel])),
+        totalCount: count };
 }
 
-function appendSamples(values) {
+const channelColors = ["#39d98a", "#ffb347", "#5da9ff", "#d875ff", "#ff6b7a", "#66e0e5"];
+
+function updateChannelLegend() {
+    $("channel-legend").innerHTML = activeGpios.map((gpio, index) =>
+        `<span style="--channel-color:${channelColors[index]}">GPIO${gpio}</span>`).join("");
+    $("input-pin-label").textContent = activeGpios.map(gpio => `GPIO${gpio}`).join("/");
+}
+
+function applyChannelMask(mask) {
+    channelInputs.forEach((input, index) => input.checked = (mask & (1 << index)) !== 0);
+}
+
+function sendChannelMask(changedInput) {
+    let mask = channelInputs.reduce((value, input, index) =>
+        value | (input.checked ? 1 << index : 0), 0);
+    if (mask === 0) {
+        changedInput.checked = true;
+        mask = 1 << channelInputs.indexOf(changedInput);
+    }
+    if (socket?.readyState === WebSocket.OPEN) socket.send(`channels:${mask}`);
+}
+
+function appendSamples(channel, values) {
     for (const value of values) {
-        if (sampleCount < maxDataPoints) {
-            samples[(sampleStart + sampleCount++) % sampleCapacity] = value;
+        if (sampleCounts[channel] < maxDataPoints) {
+            samples[channel][(sampleStarts[channel] + sampleCounts[channel]++) % sampleCapacity] = value;
         } else {
-            samples[sampleStart] = value;
-            sampleStart = (sampleStart + 1) % sampleCapacity;
+            samples[channel][sampleStarts[channel]] = value;
+            sampleStarts[channel] = (sampleStarts[channel] + 1) % sampleCapacity;
         }
     }
 }
 
-function sampleAt(index) {
-    return samples[(sampleStart + index) % sampleCapacity];
+function sampleAt(channel, index) {
+    return samples[channel][(sampleStarts[channel] + index) % sampleCapacity];
 }
 
 function trimSamples() {
-    if (sampleCount <= maxDataPoints) return;
-    sampleStart = (sampleStart + sampleCount - maxDataPoints) % sampleCapacity;
-    sampleCount = maxDataPoints;
+    for (let channel = 0; channel < 6; channel++) {
+        if (sampleCounts[channel] <= maxDataPoints) continue;
+        sampleStarts[channel] = (sampleStarts[channel] + sampleCounts[channel] - maxDataPoints) % sampleCapacity;
+        sampleCounts[channel] = maxDataPoints;
+    }
 }
 
 function updateRate() {
@@ -187,13 +227,18 @@ function updateWindowTime() {
         historyValue.textContent = "—";
         return;
     }
-    const seconds = maxDataPoints / measuredRate;
-    const [value, unit] = seconds >= 1 ? [seconds, "s"]
-        : seconds >= 0.001 ? [seconds * 1000, "ms"] : [seconds * 1000000, "µs"];
+    const { value, unit } = windowTimeScale();
     const text = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2);
     $("window-time").textContent = text;
     $("window-time-unit").textContent = unit;
     historyValue.textContent = `${text} ${unit}`;
+}
+
+function windowTimeScale() {
+    const seconds = maxDataPoints * activeChannelCount / measuredRate;
+    if (seconds >= 1) return { value: seconds, unit: "s" };
+    if (seconds >= 0.001) return { value: seconds * 1000, unit: "ms" };
+    return { value: seconds * 1000000, unit: "µs" };
 }
 
 function resizeCanvas() {
@@ -235,6 +280,17 @@ function drawGrid(width, height, ratio, yMinimum, yMaximum) {
         const value = Math.round(yMaximum - (yMaximum - yMinimum) * index / 4);
         context.fillText(String(value), left - 7 * ratio, plotHeight * index / 4);
     }
+    if (measuredRate) {
+        const time = windowTimeScale();
+        context.textBaseline = "bottom";
+        for (let index = 0; index <= 5; index++) {
+            const value = -time.value * (5 - index) / 5;
+            context.textAlign = index === 0 ? "left" : index === 5 ? "right" : "center";
+            const precision = Math.abs(value) < 10 && value !== 0 ? 1 : 0;
+            context.fillText(`${value.toFixed(precision)} ${time.unit}`,
+                left + plotWidth * index / 5, height - 3 * ratio);
+        }
+    }
     return { left, plotWidth, plotHeight };
 }
 
@@ -243,14 +299,16 @@ function draw() {
     const ratio = resizeCanvas();
     let minimum = adcMaximum;
     let maximum = 0;
-    for (let i = 0; i < sampleCount; i++) {
-        const value = sampleAt(i);
-        if (value < minimum) minimum = value;
-        if (value > maximum) maximum = value;
+    for (let channel = 0; channel < activeChannelCount; channel++) {
+        for (let i = 0; i < sampleCounts[channel]; i++) {
+            const value = sampleAt(channel, i);
+            if (value < minimum) minimum = value;
+            if (value > maximum) maximum = value;
+        }
     }
     let yMinimum = 0;
     let yMaximum = adcMaximum;
-    if (verticalScale.value === "auto" && sampleCount) {
+    if (verticalScale.value === "auto" && sampleCounts.some(count => count > 0)) {
         const padding = Math.max(32, Math.round((maximum - minimum) * 0.1));
         yMinimum = Math.max(0, minimum - padding);
         yMaximum = Math.min(adcMaximum, maximum + padding);
@@ -261,36 +319,38 @@ function draw() {
         }
     }
     const { left, plotWidth, plotHeight } = drawGrid(canvas.width, canvas.height, ratio, yMinimum, yMaximum);
-    if (sampleCount < 2) return;
-
-    context.strokeStyle = "#39d98a";
-    context.lineWidth = Math.max(1, ratio);
-    context.beginPath();
-    const columns = Math.max(1, Math.floor(plotWidth));
-    const groupSize = Math.max(1, Math.ceil(sampleCount / columns));
-    if (groupSize === 1) {
-        const xScale = plotWidth / (sampleCount - 1);
-        for (let index = 0; index < sampleCount; index++) {
-            const value = sampleAt(index);
-            const x = left + index * xScale;
-            const y = plotHeight - (value - yMinimum) * plotHeight / (yMaximum - yMinimum);
-            if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
-        }
-    } else {
-        for (let start = 0, column = 0; start < sampleCount; start += groupSize, column++) {
-            let low = adcMaximum, high = 0;
-            const end = Math.min(start + groupSize, sampleCount);
-            for (let i = start; i < end; i++) {
-                const value = sampleAt(i);
-                if (value < low) low = value;
-                if (value > high) high = value;
+    for (let channel = 0; channel < activeChannelCount; channel++) {
+        const count = sampleCounts[channel];
+        if (count < 2) continue;
+        context.strokeStyle = channelColors[channel];
+        context.lineWidth = Math.max(1, ratio);
+        context.beginPath();
+        const columns = Math.max(1, Math.floor(plotWidth));
+        const groupSize = Math.max(1, Math.ceil(count / columns));
+        if (groupSize === 1) {
+            const xScale = plotWidth / (count - 1);
+            for (let index = 0; index < count; index++) {
+                const value = sampleAt(channel, index);
+                const x = left + index * xScale;
+                const y = plotHeight - (value - yMinimum) * plotHeight / (yMaximum - yMinimum);
+                if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
             }
-            const x = left + column * plotWidth / Math.ceil(sampleCount / groupSize);
-            context.moveTo(x, plotHeight - (low - yMinimum) * plotHeight / (yMaximum - yMinimum));
-            context.lineTo(x, plotHeight - (high - yMinimum) * plotHeight / (yMaximum - yMinimum));
+        } else {
+            for (let start = 0, column = 0; start < count; start += groupSize, column++) {
+                let low = adcMaximum, high = 0;
+                const end = Math.min(start + groupSize, count);
+                for (let i = start; i < end; i++) {
+                    const value = sampleAt(channel, i);
+                    if (value < low) low = value;
+                    if (value > high) high = value;
+                }
+                const x = left + column * plotWidth / Math.ceil(count / groupSize);
+                context.moveTo(x, plotHeight - (low - yMinimum) * plotHeight / (yMaximum - yMinimum));
+                context.lineTo(x, plotHeight - (high - yMinimum) * plotHeight / (yMaximum - yMinimum));
+            }
         }
+        context.stroke();
     }
-    context.stroke();
 }
 
 function scheduleDraw() {
@@ -313,8 +373,8 @@ pauseButton.addEventListener("click", () => {
         paused ? "Paused" : (socket?.readyState === WebSocket.OPEN ? "Connected" : "Disconnected"));
 });
 $("clear").addEventListener("click", () => {
-    sampleStart = 0;
-    sampleCount = 0;
+    sampleStarts.fill(0);
+    sampleCounts.fill(0);
     scheduleDraw();
 });
 window.addEventListener("resize", scheduleDraw);
@@ -329,9 +389,7 @@ bitWidthControl.addEventListener("change", () => {
         socket.send(`bits:${bitWidthControl.value}`);
     }
 });
-adcPinControl.addEventListener("change", () => {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(`pin:${adcPinControl.value}`);
-});
+channelInputs.forEach(input => input.addEventListener("change", () => sendChannelMask(input)));
 attenuationControl.addEventListener("change", () => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(`atten:${attenuationControl.value}`);
 });
@@ -345,4 +403,5 @@ canvas.addEventListener("wheel", event => {
 }, { passive: false });
 historySlider.dispatchEvent(new Event("input"));
 connect();
+updateChannelLegend();
 scheduleDraw();
