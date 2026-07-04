@@ -2,7 +2,7 @@ menu "ESP32 Scope"
 
 config SCOPE_SAMPLE_RATE_HZ
     int "ADC sample rate (samples/second)"
-    range 20000 1000000
+    range 20000 2000000
     default 200000
     help
         Continuous ADC conversion rate. 200 kSa/s is a practical fast

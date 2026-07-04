@@ -1,6 +1,10 @@
 #include "web_server.hpp"
 
 #include <array>
+#include <charconv>
+#include <cinttypes>
+#include <cstdio>
+#include <cstring>
 
 #include "esp_check.h"
 #include "esp_log.h"
@@ -59,6 +63,7 @@ esp_err_t scope::WebServer::send_file(httpd_req_t *request) noexcept
 
 esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
 {
+    auto *server = static_cast<WebServer *>(request->user_ctx);
     if (request->method == HTTP_GET) {
         ESP_LOGI(kTag, "WebSocket connected (fd=%d)", httpd_req_to_sockfd(request));
         return ESP_OK;
@@ -67,9 +72,98 @@ esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
     ESP_RETURN_ON_ERROR(httpd_ws_recv_frame(request, &frame, 0), kTag,
                         "Failed to inspect WebSocket frame");
     if (frame.len > 64) return ESP_ERR_INVALID_SIZE;
-    uint8_t payload[64] = {};
-    frame.payload = payload;
-    return frame.len == 0 ? ESP_OK : httpd_ws_recv_frame(request, &frame, frame.len);
+    char payload[65] = {};
+    frame.payload = reinterpret_cast<uint8_t *>(payload);
+    if (frame.len != 0) {
+        ESP_RETURN_ON_ERROR(httpd_ws_recv_frame(request, &frame, frame.len), kTag,
+                            "Failed to receive WebSocket frame");
+    }
+    if (frame.type != HTTPD_WS_TYPE_TEXT || server->sample_rate_control_.set == nullptr) {
+        return ESP_OK;
+    }
+
+    constexpr char rate_prefix[] = "rate:";
+    constexpr char bits_prefix[] = "bits:";
+    constexpr char pin_prefix[] = "pin:";
+    constexpr char atten_prefix[] = "atten:";
+    uint32_t requested_value = 0;
+    const char *response_prefix = nullptr;
+    uint32_t value = 0;
+    if (std::strncmp(payload, rate_prefix, sizeof(rate_prefix) - 1) == 0) {
+        const char *begin = payload + sizeof(rate_prefix) - 1;
+        const char *end = payload + frame.len;
+        const auto result = std::from_chars(begin, end, requested_value);
+        if (result.ec != std::errc{} || result.ptr != end ||
+            requested_value < 20000 || requested_value > 2000000) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        response_prefix = "rate:";
+        value = server->sample_rate_control_.set(
+            server->sample_rate_control_.context, requested_value);
+    } else if (std::strncmp(payload, bits_prefix, sizeof(bits_prefix) - 1) == 0) {
+        const char *begin = payload + sizeof(bits_prefix) - 1;
+        const char *end = payload + frame.len;
+        const auto result = std::from_chars(begin, end, requested_value);
+        if (result.ec != std::errc{} || result.ptr != end ||
+            requested_value < 9 || requested_value > 12 ||
+            server->sample_rate_control_.set_bit_width == nullptr) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        response_prefix = "bits:";
+        value = server->sample_rate_control_.set_bit_width(
+            server->sample_rate_control_.context, requested_value);
+    } else if (std::strncmp(payload, pin_prefix, sizeof(pin_prefix) - 1) == 0) {
+        const char *begin = payload + sizeof(pin_prefix) - 1;
+        const char *end = payload + frame.len;
+        const auto result = std::from_chars(begin, end, requested_value);
+        const bool valid_gpio = requested_value == 32 || requested_value == 33 ||
+            requested_value == 34 || requested_value == 35 ||
+            requested_value == 36 || requested_value == 39;
+        if (result.ec != std::errc{} || result.ptr != end || !valid_gpio ||
+            server->sample_rate_control_.set_gpio == nullptr) return ESP_ERR_INVALID_ARG;
+        response_prefix = "pin:";
+        value = server->sample_rate_control_.set_gpio(
+            server->sample_rate_control_.context, requested_value);
+    } else if (std::strncmp(payload, atten_prefix, sizeof(atten_prefix) - 1) == 0) {
+        const char *begin = payload + sizeof(atten_prefix) - 1;
+        const char *end = payload + frame.len;
+        const auto result = std::from_chars(begin, end, requested_value);
+        if (result.ec != std::errc{} || result.ptr != end || requested_value > 3 ||
+            server->sample_rate_control_.set_attenuation == nullptr) return ESP_ERR_INVALID_ARG;
+        response_prefix = "atten:";
+        value = server->sample_rate_control_.set_attenuation(
+            server->sample_rate_control_.context, requested_value);
+    } else if (std::strcmp(payload, "get_rate") == 0) {
+        response_prefix = "rate:";
+        value = server->sample_rate_control_.set(
+            server->sample_rate_control_.context, 0);
+    } else if (std::strcmp(payload, "get_bits") == 0 &&
+               server->sample_rate_control_.set_bit_width != nullptr) {
+        response_prefix = "bits:";
+        value = server->sample_rate_control_.set_bit_width(
+            server->sample_rate_control_.context, 0);
+    } else if (std::strcmp(payload, "get_pin") == 0 &&
+               server->sample_rate_control_.set_gpio != nullptr) {
+        response_prefix = "pin:";
+        value = server->sample_rate_control_.set_gpio(
+            server->sample_rate_control_.context, 0);
+    } else if (std::strcmp(payload, "get_atten") == 0 &&
+               server->sample_rate_control_.set_attenuation != nullptr) {
+        response_prefix = "atten:";
+        value = server->sample_rate_control_.set_attenuation(
+            server->sample_rate_control_.context, UINT8_MAX);
+    } else {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    char response[32];
+    const int response_size = std::snprintf(response, sizeof(response), "%s%" PRIu32,
+                                            response_prefix, value);
+    httpd_ws_frame_t reply = {};
+    reply.type = HTTPD_WS_TYPE_TEXT;
+    reply.payload = reinterpret_cast<uint8_t *>(response);
+    reply.len = response_size;
+    return httpd_ws_send_frame(request, &reply);
 }
 
 void scope::WebServer::start() noexcept
@@ -95,6 +189,7 @@ void scope::WebServer::start() noexcept
     websocket.uri = "/ws";
     websocket.method = HTTP_GET;
     websocket.handler = handle_websocket;
+    websocket.user_ctx = this;
     websocket.is_websocket = true;
     ESP_ERROR_CHECK(httpd_register_uri_handler(handle_, &websocket));
     ESP_LOGI(kTag, "HTTP server started on port %u", config.server_port);

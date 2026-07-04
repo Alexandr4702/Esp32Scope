@@ -1,12 +1,21 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include "esp_http_server.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 namespace scope {
+
+struct SampleRateControl {
+    void *context = nullptr;
+    uint32_t (*set)(void *context, uint32_t requested_rate) = nullptr;
+    uint8_t (*set_bit_width)(void *context, uint8_t requested_width) = nullptr;
+    uint8_t (*set_gpio)(void *context, uint8_t requested_gpio) = nullptr;
+    uint8_t (*set_attenuation)(void *context, uint8_t requested_attenuation) = nullptr;
+};
 
 class WebServer final {
 public:
@@ -19,6 +28,8 @@ public:
     void start() noexcept;
     void stop() noexcept;
     void broadcast(const void *data, size_t size) noexcept;
+    void set_sample_rate_control(SampleRateControl control) noexcept
+    { sample_rate_control_ = control; }
 
 private:
     static esp_err_t send_file(httpd_req_t *request) noexcept;
@@ -26,6 +37,7 @@ private:
 
     httpd_handle_t handle_ = nullptr;
     SemaphoreHandle_t mutex_ = nullptr;
+    SampleRateControl sample_rate_control_;
 };
 
 } // namespace scope

@@ -6,6 +6,10 @@ const historyValue = $("history-size-value");
 const connection = $("connection");
 const pauseButton = $("pause");
 const verticalScale = $("vertical-scale");
+const sampleRateControl = $("sample-rate-control");
+const bitWidthControl = $("bit-width");
+const adcPinControl = $("adc-pin");
+const attenuationControl = $("adc-attenuation");
 
 const sampleCapacity = Number(historySlider.max);
 const samples = new Uint16Array(sampleCapacity);
@@ -20,6 +24,7 @@ let drawPending = false;
 let rateCounter = 0;
 let measuredRate = 0;
 let rateStartedAt = performance.now();
+let adcMaximum = 4095;
 
 function setStatus(mode, label) {
     connection.className = `status status-${mode}`;
@@ -70,13 +75,39 @@ function connect() {
     socket.addEventListener("open", () => {
         reconnectDelay = 500;
         setStatus(paused ? "paused" : "online", paused ? "Paused" : "Connected");
+        socket.send("get_rate");
+        socket.send("get_bits");
+        socket.send("get_pin");
+        socket.send("get_atten");
     });
     socket.addEventListener("message", event => {
         try {
-            const bytes = decodeAdcData(new Uint8Array(event.data));
-            rateCounter += Math.floor(bytes.length / 2);
+            if (typeof event.data === "string") {
+                if (event.data.startsWith("rate:")) {
+                    const rate = Number(event.data.slice(5));
+                    sampleRateControl.value = String(rate);
+                    measuredRate = rate;
+                    $("sample-rate").textContent = rate.toLocaleString("en-US");
+                    updateWindowTime();
+                } else if (event.data.startsWith("bits:")) {
+                    const bits = Number(event.data.slice(5));
+                    bitWidthControl.value = String(bits);
+                    adcMaximum = 2 ** bits - 1;
+                    $("full-scale-option").textContent = `Full scale (0–${adcMaximum})`;
+                    scheduleDraw();
+                } else if (event.data.startsWith("pin:")) {
+                    adcPinControl.value = event.data.slice(4);
+                    $("input-pin-label").textContent = `GPIO${adcPinControl.value}`;
+                } else if (event.data.startsWith("atten:")) {
+                    attenuationControl.value = event.data.slice(6);
+                }
+                return;
+            }
+            const packet = decodeAdcData(new Uint8Array(event.data));
+            const decoded = unpackSamples(packet);
+            rateCounter += decoded.length;
             if (!paused) {
-                appendSamples(bytes);
+                appendSamples(decoded);
                 scheduleDraw();
             }
             updateRate();
@@ -92,9 +123,34 @@ function connect() {
     socket.addEventListener("error", () => socket.close());
 }
 
-function appendSamples(bytes) {
-    for (let i = 0; i + 1 < bytes.length; i += 2) {
-        const value = (bytes[i] | (bytes[i + 1] << 8)) & 0x0fff;
+function unpackSamples(packet) {
+    if (packet.length < 4 || packet[0] !== 0xa5) {
+        throw new Error("Unsupported ADC packet format");
+    }
+    const bits = packet[1];
+    const count = packet[2] | (packet[3] << 8);
+    if (bits < 9 || bits > 12 || packet.length < 4 + Math.ceil(count * bits / 8)) {
+        throw new Error("Invalid packed ADC payload");
+    }
+    const result = new Uint16Array(count);
+    const mask = 2 ** bits - 1;
+    let accumulator = 0;
+    let accumulatedBits = 0;
+    let offset = 4;
+    for (let i = 0; i < count; i++) {
+        while (accumulatedBits < bits) {
+            accumulator += packet[offset++] * 2 ** accumulatedBits;
+            accumulatedBits += 8;
+        }
+        result[i] = accumulator & mask;
+        accumulator = Math.floor(accumulator / 2 ** bits);
+        accumulatedBits -= bits;
+    }
+    return result;
+}
+
+function appendSamples(values) {
+    for (const value of values) {
         if (sampleCount < maxDataPoints) {
             samples[(sampleStart + sampleCount++) % sampleCapacity] = value;
         } else {
@@ -126,9 +182,18 @@ function updateRate() {
 }
 
 function updateWindowTime() {
-    $("window-time").textContent = measuredRate
-        ? (maxDataPoints * 1000 / measuredRate).toFixed(1)
-        : "—";
+    if (!measuredRate) {
+        $("window-time").textContent = "—";
+        historyValue.textContent = "—";
+        return;
+    }
+    const seconds = maxDataPoints / measuredRate;
+    const [value, unit] = seconds >= 1 ? [seconds, "s"]
+        : seconds >= 0.001 ? [seconds * 1000, "ms"] : [seconds * 1000000, "µs"];
+    const text = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2);
+    $("window-time").textContent = text;
+    $("window-time-unit").textContent = unit;
+    historyValue.textContent = `${text} ${unit}`;
 }
 
 function resizeCanvas() {
@@ -176,7 +241,7 @@ function drawGrid(width, height, ratio, yMinimum, yMaximum) {
 function draw() {
     drawPending = false;
     const ratio = resizeCanvas();
-    let minimum = 4095;
+    let minimum = adcMaximum;
     let maximum = 0;
     for (let i = 0; i < sampleCount; i++) {
         const value = sampleAt(i);
@@ -184,15 +249,15 @@ function draw() {
         if (value > maximum) maximum = value;
     }
     let yMinimum = 0;
-    let yMaximum = 4095;
+    let yMaximum = adcMaximum;
     if (verticalScale.value === "auto" && sampleCount) {
         const padding = Math.max(32, Math.round((maximum - minimum) * 0.1));
         yMinimum = Math.max(0, minimum - padding);
-        yMaximum = Math.min(4095, maximum + padding);
+        yMaximum = Math.min(adcMaximum, maximum + padding);
         if (yMaximum - yMinimum < 64) {
             const center = (yMinimum + yMaximum) / 2;
             yMinimum = Math.max(0, Math.floor(center - 32));
-            yMaximum = Math.min(4095, Math.ceil(center + 32));
+            yMaximum = Math.min(adcMaximum, Math.ceil(center + 32));
         }
     }
     const { left, plotWidth, plotHeight } = drawGrid(canvas.width, canvas.height, ratio, yMinimum, yMaximum);
@@ -213,7 +278,7 @@ function draw() {
         }
     } else {
         for (let start = 0, column = 0; start < sampleCount; start += groupSize, column++) {
-            let low = 4095, high = 0;
+            let low = adcMaximum, high = 0;
             const end = Math.min(start + groupSize, sampleCount);
             for (let i = start; i < end; i++) {
                 const value = sampleAt(i);
@@ -226,8 +291,6 @@ function draw() {
         }
     }
     context.stroke();
-    $("minimum").textContent = minimum.toLocaleString("en-US");
-    $("maximum").textContent = maximum.toLocaleString("en-US");
 }
 
 function scheduleDraw() {
@@ -239,7 +302,6 @@ function scheduleDraw() {
 
 historySlider.addEventListener("input", () => {
     maxDataPoints = Number(historySlider.value);
-    historyValue.textContent = `${maxDataPoints.toLocaleString("en-US")} samples`;
     trimSamples();
     updateWindowTime();
     scheduleDraw();
@@ -253,12 +315,26 @@ pauseButton.addEventListener("click", () => {
 $("clear").addEventListener("click", () => {
     sampleStart = 0;
     sampleCount = 0;
-    $("minimum").textContent = "—";
-    $("maximum").textContent = "—";
     scheduleDraw();
 });
 window.addEventListener("resize", scheduleDraw);
 verticalScale.addEventListener("change", scheduleDraw);
+sampleRateControl.addEventListener("change", () => {
+    if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(`rate:${sampleRateControl.value}`);
+    }
+});
+bitWidthControl.addEventListener("change", () => {
+    if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(`bits:${bitWidthControl.value}`);
+    }
+});
+adcPinControl.addEventListener("change", () => {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(`pin:${adcPinControl.value}`);
+});
+attenuationControl.addEventListener("change", () => {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(`atten:${attenuationControl.value}`);
+});
 canvas.addEventListener("wheel", event => {
     event.preventDefault();
     const direction = event.deltaY > 0 ? 1 : -1;

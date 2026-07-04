@@ -21,6 +21,8 @@ void scope::Application::start() noexcept
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     initialize_mdns();
+    web_server_.set_sample_rate_control(
+        {this, sample_rate, bit_width, gpio, attenuation});
 
     wifi_.start({this, connection_started, connection_stopped});
 
@@ -47,6 +49,43 @@ void scope::Application::send_samples(void *context, const void *data,
     static_cast<Application *>(context)->web_server_.broadcast(data, size);
 }
 
+uint32_t scope::Application::sample_rate(void *context,
+                                         uint32_t requested_rate) noexcept
+{
+    auto *application = static_cast<Application *>(context);
+    if (requested_rate != 0) {
+        application->requested_sample_rate_.store(requested_rate);
+    }
+    return application->requested_sample_rate_.load();
+}
+
+uint8_t scope::Application::bit_width(void *context,
+                                      uint8_t requested_width) noexcept
+{
+    auto *application = static_cast<Application *>(context);
+    if (requested_width != 0) {
+        application->requested_bit_width_.store(requested_width);
+    }
+    return application->requested_bit_width_.load();
+}
+
+uint8_t scope::Application::gpio(void *context, uint8_t requested_gpio) noexcept
+{
+    auto *application = static_cast<Application *>(context);
+    if (requested_gpio != 0) application->requested_gpio_.store(requested_gpio);
+    return application->requested_gpio_.load();
+}
+
+uint8_t scope::Application::attenuation(void *context,
+                                        uint8_t requested_attenuation) noexcept
+{
+    auto *application = static_cast<Application *>(context);
+    if (requested_attenuation != UINT8_MAX) {
+        application->requested_attenuation_.store(requested_attenuation);
+    }
+    return application->requested_attenuation_.load();
+}
+
 void scope::Application::initialize_nvs() noexcept
 {
     esp_err_t result = nvs_flash_init();
@@ -70,6 +109,9 @@ void scope::Application::initialize_mdns() noexcept
 [[noreturn]] void scope::Application::adc_task(void *context) noexcept
 {
     auto *application = static_cast<Application *>(context);
-    AdcStream stream{{application, send_samples}};
+    AdcStream stream{{application, send_samples},
+                     application->requested_sample_rate_,
+                     application->requested_bit_width_, application->requested_gpio_,
+                     application->requested_attenuation_};
     stream.run();
 }

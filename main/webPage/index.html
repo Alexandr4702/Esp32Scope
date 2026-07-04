@@ -11,7 +11,7 @@
     <main>
         <header>
             <div>
-                <p class="eyebrow">ESP32 · GPIO34 · ADC1</p>
+                <p class="eyebrow">ESP32 · <span id="input-pin-label">GPIO34</span> · ADC1</p>
                 <h1>ESP32 Scope</h1>
             </div>
             <div id="connection" class="status status-offline"><span></span><strong>Connecting…</strong></div>
@@ -19,9 +19,7 @@
 
         <section class="metrics" aria-label="Signal statistics">
             <article><span>Sample rate</span><strong id="sample-rate">—</strong><small>Sa/s</small></article>
-            <article><span>Minimum</span><strong id="minimum">—</strong><small>ADC</small></article>
-            <article><span>Maximum</span><strong id="maximum">—</strong><small>ADC</small></article>
-            <article><span>Time window</span><strong id="window-time">—</strong><small>ms</small></article>
+            <article><span>Time window</span><strong id="window-time">—</strong><small id="window-time-unit">ms</small></article>
         </section>
 
         <section class="scope-card">
@@ -40,17 +38,57 @@
         <section class="controls">
             <label for="history-size">
                 <span>Horizontal scale</span>
-                <output id="history-size-value" for="history-size">8,000 samples</output>
+                <output id="history-size-value" for="history-size">—</output>
             </label>
             <input type="range" min="500" max="20000" step="500" value="8000" id="history-size">
             <div class="range-labels"><span>500</span><span>20 000</span></div>
             <div class="scale-row">
+                <label for="sample-rate-control"><span>Sample rate</span></label>
+                <select id="sample-rate-control">
+                    <option value="20000">20 kSa/s</option>
+                    <option value="50000">50 kSa/s</option>
+                    <option value="100000">100 kSa/s</option>
+                    <option value="200000">200 kSa/s</option>
+                    <option value="500000">500 kSa/s</option>
+                    <option value="1000000">1 MSa/s</option>
+                    <option value="2000000">2 MSa/s (maximum)</option>
+                </select>
+                <small>Higher rates may be limited by Wi-Fi throughput.</small>
+            </div>
+            <div class="scale-row">
                 <label for="vertical-scale"><span>Vertical scale</span></label>
                 <select id="vertical-scale">
                     <option value="auto">Auto scale</option>
-                    <option value="full">Full scale (0–4095)</option>
+                    <option value="full" id="full-scale-option">Full scale (0–4095)</option>
                 </select>
                 <small>Tip: use the mouse wheel over the graph to zoom horizontally.</small>
+            </div>
+            <div class="scale-row">
+                <label for="bit-width"><span>ADC resolution</span></label>
+                <select id="bit-width">
+                    <option value="9">9 bit</option>
+                    <option value="10">10 bit</option>
+                    <option value="11">11 bit</option>
+                    <option value="12" selected>12 bit</option>
+                </select>
+                <small>DMA bandwidth remains 16 bits per sample.</small>
+            </div>
+            <div class="scale-row">
+                <label for="adc-pin"><span>ADC input</span></label>
+                <select id="adc-pin">
+                    <option value="32">GPIO32</option><option value="33">GPIO33</option>
+                    <option value="34" selected>GPIO34</option><option value="35">GPIO35</option>
+                    <option value="36">GPIO36</option><option value="39">GPIO39</option>
+                </select>
+                <small>ADC1 only; ADC2 cannot be used reliably together with Wi-Fi.</small>
+            </div>
+            <div class="scale-row">
+                <label for="adc-attenuation"><span>Input range</span></label>
+                <select id="adc-attenuation">
+                    <option value="0">0 dB</option><option value="1">2.5 dB</option>
+                    <option value="2">6 dB</option><option value="3" selected>12 dB</option>
+                </select>
+                <small>Higher attenuation allows a higher input voltage.</small>
             </div>
         </section>
     </main>

@@ -24,7 +24,7 @@ h1 { margin: 2px 0 0; font-size: clamp(1.65rem, 4vw, 2.4rem); letter-spacing: -.
 .status-paused { color: #ffcc66; border-color: rgba(255, 204, 102, .3); }
 .status-offline { color: #ff6b7a; border-color: rgba(255, 107, 122, .25); }
 
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+.metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 12px; }
 .metrics article, .scope-card, .controls { border: 1px solid #1c2838; background: rgba(15, 22, 32, .92); border-radius: 14px; }
 .metrics article { padding: 15px 17px; }
 .metrics span, .controls label span { display: block; color: #7e91a8; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
