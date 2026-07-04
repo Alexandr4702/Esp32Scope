@@ -10,6 +10,18 @@ const sampleRateControl = $("sample-rate-control");
 const channelInputs = [...document.querySelectorAll("#channel-picker input")];
 const bitWidthControls = [...document.querySelectorAll("#channel-picker select")];
 const attenuationControl = $("adc-attenuation");
+const triggerEnabled = $("trigger-enabled");
+const triggerMode = $("trigger-mode");
+const triggerSource = $("trigger-source");
+const triggerEdge = $("trigger-edge");
+const triggerLevel = $("trigger-level");
+const triggerPosition = $("trigger-position");
+const spectrumCanvas = $("spectrum");
+const spectrumContext = spectrumCanvas.getContext("2d", { alpha: false });
+const spectrumEnabled = $("spectrum-enabled");
+const spectrumSource = $("spectrum-source");
+const spectrumMode = $("spectrum-mode");
+const spectrumWindow = $("spectrum-window");
 
 const sampleCapacity = Number(historySlider.max);
 const samples = Array.from({ length: 6 }, () => new Uint16Array(sampleCapacity));
@@ -28,6 +40,67 @@ let rateCounter = 0;
 let measuredRate = 0;
 let rateStartedAt = performance.now();
 let adcMaximum = 4095;
+let triggerArmed = true;
+let triggeredFrame = null;
+const mathChannels = [
+    { enabled: false, operation: "subtract", a: 0, b: 1 },
+    { enabled: false, operation: "smooth", a: 0, b: 1 }
+];
+
+const mathOperations = [
+    ["add", "A + B"], ["subtract", "A − B"], ["multiply", "A × B (normalized)"],
+    ["divide", "A ÷ B"], ["average", "Average(A, B)"], ["minimum", "Min(A, B)"],
+    ["maximum", "Max(A, B)"], ["absolute", "|A|"], ["invert", "Invert A"],
+    ["dc", "Remove DC"], ["smooth", "Moving average"], ["derivative", "Derivative"],
+    ["integral", "Integral"]
+];
+
+function initializeMathControls() {
+    $("math-controls").innerHTML = mathChannels.map((channel, index) => `
+        <div class="math-row" style="--math-color:${channelColors[6 + index]}">
+            <input class="math-enabled" data-index="${index}" type="checkbox" aria-label="Enable M${index + 1}">
+            <div><div class="math-name">M${index + 1}</div><div class="math-options">
+                <select class="math-operation" data-index="${index}">${mathOperations.map(([value, label]) => `<option value="${value}"${value === channel.operation ? " selected" : ""}>${label}</option>`).join("")}</select>
+                <select class="math-a" data-index="${index}"></select><select class="math-b" data-index="${index}"></select>
+            </div></div>
+        </div>`).join("");
+    document.querySelectorAll("#math-controls input, #math-controls select").forEach(control =>
+        control.addEventListener("change", updateMathSettings));
+    refreshSourceOptions();
+}
+
+function refreshSourceOptions() {
+    const options = activeGpios.map((gpio, index) => `<option value="${index}">GPIO${gpio}</option>`).join("");
+    const previousTrigger = triggerSource.value;
+    triggerSource.innerHTML = options;
+    triggerSource.value = previousTrigger && Number(previousTrigger) < activeGpios.length ? previousTrigger : "0";
+    document.querySelectorAll(".math-a, .math-b").forEach(select => {
+        const index = Number(select.dataset.index);
+        const previous = select.value;
+        select.innerHTML = options;
+        const fallback = select.classList.contains("math-b") ? Math.min(1, activeGpios.length - 1) : 0;
+        select.value = previous && Number(previous) < activeGpios.length ? previous : String(fallback);
+        mathChannels[index][select.classList.contains("math-b") ? "b" : "a"] = Number(select.value);
+    });
+    const previousSpectrum = spectrumSource.value;
+    spectrumSource.innerHTML = activeGpios.map((gpio, index) =>
+        `<option value="p${index}">GPIO${gpio}</option>`).join("") +
+        mathChannels.flatMap((channel, index) => channel.enabled ?
+            [`<option value="m${index}">M${index + 1}</option>`] : []).join("");
+    if ([...spectrumSource.options].some(option => option.value === previousSpectrum))
+        spectrumSource.value = previousSpectrum;
+}
+
+function updateMathSettings(event) {
+    const index = Number(event.target.dataset.index);
+    const channel = mathChannels[index];
+    channel.enabled = document.querySelector(`.math-enabled[data-index="${index}"]`).checked;
+    channel.operation = document.querySelector(`.math-operation[data-index="${index}"]`).value;
+    channel.a = Number(document.querySelector(`.math-a[data-index="${index}"]`).value);
+    channel.b = Number(document.querySelector(`.math-b[data-index="${index}"]`).value);
+    updateChannelLegend();
+    scheduleDraw();
+}
 
 function setStatus(mode, label) {
     connection.className = `status status-${mode}`;
@@ -155,25 +228,32 @@ function unpackSamples(packet) {
         accumulatedBits -= bits;
         if (++channel === channelCount) channel = 0;
     }
-    if (gpios.join() !== activeGpios.join() || bitWidths.join() !== activeBitWidths.join()) {
+    const configurationChanged = gpios.join() !== activeGpios.join() || bitWidths.join() !== activeBitWidths.join();
+    if (configurationChanged) {
         sampleStarts.fill(0);
         sampleCounts.fill(0);
+        triggeredFrame = null;
     }
     activeGpios = gpios;
     activeBitWidths = bitWidths;
     adcMaximum = Math.max(...bitWidths.map(bits => 2 ** bits - 1));
+    triggerLevel.max = String(adcMaximum);
     $("full-scale-option").textContent = `Full scale (0–${adcMaximum})`;
-    updateChannelLegend();
+    if (configurationChanged) updateChannelLegend();
     return { channels: channels.map((values, channel) => values.subarray(0, positions[channel])),
         totalCount: count };
 }
 
-const channelColors = ["#39d98a", "#ffb347", "#5da9ff", "#d875ff", "#ff6b7a", "#66e0e5"];
+const channelColors = ["#39d98a", "#ffb347", "#5da9ff", "#d875ff", "#ff6b7a", "#66e0e5", "#f5e663", "#ff7bd5"];
 
 function updateChannelLegend() {
-    $("channel-legend").innerHTML = activeGpios.map((gpio, index) =>
-        `<span style="--channel-color:${channelColors[index]}">GPIO${gpio}</span>`).join("");
+    const physical = activeGpios.map((gpio, index) =>
+        `<span style="--channel-color:${channelColors[index]}">GPIO${gpio}</span>`);
+    const math = mathChannels.flatMap((channel, index) => channel.enabled ?
+        [`<span style="--channel-color:${channelColors[6 + index]}">M${index + 1}</span>`] : []);
+    $("channel-legend").innerHTML = [...physical, ...math].join("");
     $("input-pin-label").textContent = activeGpios.map(gpio => `GPIO${gpio}`).join("/");
+    refreshSourceOptions();
 }
 
 function applyChannelMask(mask) {
@@ -203,7 +283,7 @@ function sendChannelMask(changedInput) {
 
 function appendSamples(channel, values) {
     for (const value of values) {
-        if (sampleCounts[channel] < maxDataPoints) {
+        if (sampleCounts[channel] < sampleCapacity) {
             samples[channel][(sampleStarts[channel] + sampleCounts[channel]++) % sampleCapacity] = value;
         } else {
             samples[channel][sampleStarts[channel]] = value;
@@ -308,35 +388,207 @@ function drawGrid(width, height, ratio, yMinimum, yMaximum) {
     return { left, plotWidth, plotHeight };
 }
 
+function crossed(previous, current, level, edge) {
+    const rising = previous < level && current >= level;
+    const falling = previous > level && current <= level;
+    return edge === "rising" ? rising : edge === "falling" ? falling : rising || falling;
+}
+
+function rawFrame() {
+    const count = Math.min(...sampleCounts.slice(0, activeChannelCount));
+    const width = Math.min(maxDataPoints, count);
+    if (width < 2) return [];
+    let start = count - width;
+    let hit = -1;
+    if (triggerEnabled.checked && triggerArmed) {
+        const source = Math.min(Number(triggerSource.value), activeChannelCount - 1);
+        const before = Math.round((width - 1) * Number(triggerPosition.value) / 100);
+        const after = width - 1 - before;
+        const level = Number(triggerLevel.value);
+        for (let i = Math.max(1, before); i < count - after; i++) {
+            if (crossed(sampleAt(source, i - 1), sampleAt(source, i), level, triggerEdge.value)) hit = i;
+        }
+        if (hit >= 0) start = hit - before;
+        else if (triggerMode.value !== "auto") return triggeredFrame || [];
+    } else if (triggerEnabled.checked && !triggerArmed) {
+        return triggeredFrame || [];
+    }
+    const frame = Array.from({ length: activeChannelCount }, (_, channel) => {
+        const values = new Float32Array(width);
+        for (let i = 0; i < width; i++) values[i] = sampleAt(channel, start + i);
+        return values;
+    });
+    if (triggerEnabled.checked && hit >= 0) {
+        triggeredFrame = frame;
+        $("trigger-state").textContent = `Triggered at ${Number(triggerLevel.value).toLocaleString()}`;
+        if (triggerMode.value === "single") triggerArmed = false;
+    } else if (triggerEnabled.checked) {
+        $("trigger-state").textContent = "Armed — waiting for edge";
+    }
+    return frame;
+}
+
+function calculateMath(channel, raw) {
+    const a = raw[Math.min(channel.a, raw.length - 1)];
+    const b = raw[Math.min(channel.b, raw.length - 1)];
+    if (!a) return new Float32Array();
+    const result = new Float32Array(a.length);
+    const mean = a.reduce((sum, value) => sum + value, 0) / a.length;
+    let accumulator = 0;
+    for (let i = 0; i < a.length; i++) {
+        switch (channel.operation) {
+        case "add": result[i] = a[i] + b[i]; break;
+        case "subtract": result[i] = a[i] - b[i]; break;
+        case "multiply": result[i] = a[i] * b[i] / adcMaximum; break;
+        case "divide": result[i] = Math.abs(b[i]) < 1e-9 ? 0 : a[i] / b[i]; break;
+        case "average": result[i] = (a[i] + b[i]) / 2; break;
+        case "minimum": result[i] = Math.min(a[i], b[i]); break;
+        case "maximum": result[i] = Math.max(a[i], b[i]); break;
+        case "absolute": result[i] = Math.abs(a[i]); break;
+        case "invert": result[i] = adcMaximum - a[i]; break;
+        case "dc": result[i] = a[i] - mean; break;
+        case "smooth": {
+            let sum = 0, samplesInWindow = 0;
+            for (let j = Math.max(0, i - 3); j <= Math.min(a.length - 1, i + 3); j++) { sum += a[j]; samplesInWindow++; }
+            result[i] = sum / samplesInWindow; break;
+        }
+        case "derivative": result[i] = i ? a[i] - a[i - 1] : 0; break;
+        case "integral": accumulator += a[i] - mean; result[i] = accumulator / Math.max(1, a.length / 100); break;
+        }
+    }
+    return result;
+}
+
+function windowCoefficient(kind, index, count) {
+    if (count < 2 || kind === "rectangular") return 1;
+    const angle = 2 * Math.PI * index / (count - 1);
+    if (kind === "hamming") return 0.54 - 0.46 * Math.cos(angle);
+    if (kind === "blackman") return 0.42 - 0.5 * Math.cos(angle) + 0.08 * Math.cos(2 * angle);
+    return 0.5 - 0.5 * Math.cos(angle);
+}
+
+function fft(real, imaginary) {
+    const count = real.length;
+    for (let i = 1, j = 0; i < count; i++) {
+        let bit = count >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+            [real[i], real[j]] = [real[j], real[i]];
+            [imaginary[i], imaginary[j]] = [imaginary[j], imaginary[i]];
+        }
+    }
+    for (let length = 2; length <= count; length <<= 1) {
+        const angle = -2 * Math.PI / length;
+        const stepReal = Math.cos(angle), stepImaginary = Math.sin(angle);
+        for (let start = 0; start < count; start += length) {
+            let rotationReal = 1, rotationImaginary = 0;
+            for (let offset = 0; offset < length / 2; offset++) {
+                const even = start + offset, odd = even + length / 2;
+                const oddReal = real[odd] * rotationReal - imaginary[odd] * rotationImaginary;
+                const oddImaginary = real[odd] * rotationImaginary + imaginary[odd] * rotationReal;
+                real[odd] = real[even] - oddReal; imaginary[odd] = imaginary[even] - oddImaginary;
+                real[even] += oddReal; imaginary[even] += oddImaginary;
+                const nextReal = rotationReal * stepReal - rotationImaginary * stepImaginary;
+                rotationImaginary = rotationReal * stepImaginary + rotationImaginary * stepReal;
+                rotationReal = nextReal;
+            }
+        }
+    }
+}
+
+function formatFrequency(value) {
+    return value >= 1e6 ? `${(value / 1e6).toFixed(1)} MHz` :
+        value >= 1e3 ? `${(value / 1e3).toFixed(value >= 1e4 ? 0 : 1)} kHz` : `${value.toFixed(0)} Hz`;
+}
+
+function drawSpectrum(raw) {
+    if (!spectrumEnabled.checked || !raw.length) return;
+    const source = spectrumSource.value;
+    const values = source.startsWith("m") ? calculateMath(mathChannels[Number(source.slice(1))], raw) :
+        raw[Math.min(Number(source.slice(1)), raw.length - 1)];
+    let count = 1;
+    while (count * 2 <= Math.min(4096, values.length)) count *= 2;
+    if (count < 8) return;
+    const real = new Float64Array(count), imaginary = new Float64Array(count);
+    const offset = values.length - count;
+    let mean = 0, windowSum = 0;
+    for (let i = 0; i < count; i++) mean += values[offset + i];
+    mean /= count;
+    for (let i = 0; i < count; i++) {
+        const coefficient = windowCoefficient(spectrumWindow.value, i, count);
+        real[i] = (values[offset + i] - mean) * coefficient;
+        windowSum += coefficient;
+    }
+    fft(real, imaginary);
+    const bins = count / 2;
+    const plotted = new Float32Array(bins);
+    for (let i = 0; i < bins; i++) {
+        const magnitude = 2 * Math.hypot(real[i], imaginary[i]) / Math.max(1, windowSum);
+        if (spectrumMode.value === "db") plotted[i] = 20 * Math.log10(Math.max(magnitude, 1e-9));
+        else if (spectrumMode.value === "psd") plotted[i] = magnitude * magnitude;
+        else if (spectrumMode.value === "phase") plotted[i] = Math.atan2(imaginary[i], real[i]) * 180 / Math.PI;
+        else plotted[i] = magnitude;
+    }
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.max(1, Math.floor(spectrumCanvas.clientWidth * ratio));
+    const height = Math.max(1, Math.floor(spectrumCanvas.clientHeight * ratio));
+    if (spectrumCanvas.width !== width || spectrumCanvas.height !== height) {
+        spectrumCanvas.width = width; spectrumCanvas.height = height;
+    }
+    const left = 52 * ratio, bottom = 24 * ratio, plotWidth = width - left, plotHeight = height - bottom;
+    let minimum = spectrumMode.value === "phase" ? -180 : Math.min(...plotted);
+    let maximum = spectrumMode.value === "phase" ? 180 : Math.max(...plotted);
+    if (!Number.isFinite(minimum) || maximum <= minimum) { minimum = 0; maximum = 1; }
+    const padding = spectrumMode.value === "phase" ? 0 : (maximum - minimum) * 0.08;
+    minimum -= padding; maximum += padding;
+    spectrumContext.fillStyle = "#090e15"; spectrumContext.fillRect(0, 0, width, height);
+    spectrumContext.strokeStyle = "#182330"; spectrumContext.lineWidth = 1; spectrumContext.beginPath();
+    for (let i = 0; i <= 10; i++) { const x = left + plotWidth * i / 10; spectrumContext.moveTo(x, 0); spectrumContext.lineTo(x, plotHeight); }
+    for (let i = 0; i <= 4; i++) { const y = plotHeight * i / 4; spectrumContext.moveTo(left, y); spectrumContext.lineTo(width, y); }
+    spectrumContext.stroke();
+    spectrumContext.fillStyle = "#60738b"; spectrumContext.font = `${10 * ratio}px ui-monospace, monospace`;
+    const channelRate = measuredRate / Math.max(1, activeChannelCount);
+    spectrumContext.textBaseline = "bottom";
+    for (let i = 0; i <= 5; i++) {
+        spectrumContext.textAlign = i === 0 ? "left" : i === 5 ? "right" : "center";
+        spectrumContext.fillText(formatFrequency(channelRate * 0.5 * i / 5), left + plotWidth * i / 5, height - 3 * ratio);
+    }
+    spectrumContext.textAlign = "right"; spectrumContext.textBaseline = "middle";
+    for (let i = 0; i <= 4; i++) spectrumContext.fillText((maximum - (maximum - minimum) * i / 4).toFixed(1), left - 6 * ratio, plotHeight * i / 4);
+    spectrumContext.strokeStyle = "#66e0e5"; spectrumContext.lineWidth = Math.max(1, ratio); spectrumContext.beginPath();
+    for (let i = 0; i < bins; i++) {
+        const x = left + plotWidth * i / (bins - 1);
+        const y = plotHeight - (plotted[i] - minimum) * plotHeight / (maximum - minimum);
+        if (i === 0) spectrumContext.moveTo(x, y); else spectrumContext.lineTo(x, y);
+    }
+    spectrumContext.stroke();
+}
+
 function draw() {
     drawPending = false;
     const ratio = resizeCanvas();
-    let minimum = adcMaximum;
-    let maximum = 0;
-    for (let channel = 0; channel < activeChannelCount; channel++) {
-        for (let i = 0; i < sampleCounts[channel]; i++) {
-            const value = sampleAt(channel, i);
-            if (value < minimum) minimum = value;
-            if (value > maximum) maximum = value;
-        }
-    }
-    let yMinimum = 0;
-    let yMaximum = adcMaximum;
-    if (verticalScale.value === "auto" && sampleCounts.some(count => count > 0)) {
-        const padding = Math.max(32, Math.round((maximum - minimum) * 0.1));
-        yMinimum = Math.max(0, minimum - padding);
-        yMaximum = Math.min(adcMaximum, maximum + padding);
-        if (yMaximum - yMinimum < 64) {
-            const center = (yMinimum + yMaximum) / 2;
-            yMinimum = Math.max(0, Math.floor(center - 32));
-            yMaximum = Math.min(adcMaximum, Math.ceil(center + 32));
-        }
+    const raw = rawFrame();
+    const series = raw.map((values, index) => ({ values, color: channelColors[index] }));
+    mathChannels.forEach((channel, index) => {
+        if (channel.enabled && raw.length) series.push({ values: calculateMath(channel, raw), color: channelColors[6 + index] });
+    });
+    let minimum = Infinity, maximum = -Infinity;
+    series.forEach(item => item.values.forEach(value => {
+        if (Number.isFinite(value)) { minimum = Math.min(minimum, value); maximum = Math.max(maximum, value); }
+    }));
+    let yMinimum = 0, yMaximum = adcMaximum;
+    if (verticalScale.value === "auto" && Number.isFinite(minimum)) {
+        const padding = Math.max(1, (maximum - minimum) * 0.1);
+        yMinimum = minimum - padding;
+        yMaximum = maximum + padding;
+        if (yMaximum - yMinimum < 2) { yMinimum -= 1; yMaximum += 1; }
     }
     const { left, plotWidth, plotHeight } = drawGrid(canvas.width, canvas.height, ratio, yMinimum, yMaximum);
-    for (let channel = 0; channel < activeChannelCount; channel++) {
-        const count = sampleCounts[channel];
-        if (count < 2) continue;
-        context.strokeStyle = channelColors[channel];
+    series.forEach(item => {
+        const count = item.values.length;
+        if (count < 2) return;
+        context.strokeStyle = item.color;
         context.lineWidth = Math.max(1, ratio);
         context.beginPath();
         const columns = Math.max(1, Math.floor(plotWidth));
@@ -344,17 +596,17 @@ function draw() {
         if (groupSize === 1) {
             const xScale = plotWidth / (count - 1);
             for (let index = 0; index < count; index++) {
-                const value = sampleAt(channel, index);
+                const value = item.values[index];
                 const x = left + index * xScale;
                 const y = plotHeight - (value - yMinimum) * plotHeight / (yMaximum - yMinimum);
                 if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
             }
         } else {
             for (let start = 0, column = 0; start < count; start += groupSize, column++) {
-                let low = adcMaximum, high = 0;
+                let low = Infinity, high = -Infinity;
                 const end = Math.min(start + groupSize, count);
                 for (let i = start; i < end; i++) {
-                    const value = sampleAt(channel, i);
+                    const value = item.values[i];
                     if (value < low) low = value;
                     if (value > high) high = value;
                 }
@@ -364,7 +616,16 @@ function draw() {
             }
         }
         context.stroke();
+    });
+
+    if (triggerEnabled.checked && Number(triggerSource.value) < raw.length) {
+        const y = plotHeight - (Number(triggerLevel.value) - yMinimum) * plotHeight / (yMaximum - yMinimum);
+        context.strokeStyle = "#ffcc66"; context.setLineDash([5 * ratio, 5 * ratio]); context.beginPath();
+        context.moveTo(left, y); context.lineTo(canvas.width, y); context.stroke(); context.setLineDash([]);
+        const x = left + plotWidth * Number(triggerPosition.value) / 100;
+        context.fillStyle = "#ffcc66"; context.beginPath(); context.moveTo(x, 0); context.lineTo(x - 5 * ratio, 8 * ratio); context.lineTo(x + 5 * ratio, 8 * ratio); context.fill();
     }
+    drawSpectrum(raw);
 }
 
 function scheduleDraw() {
@@ -389,10 +650,18 @@ pauseButton.addEventListener("click", () => {
 $("clear").addEventListener("click", () => {
     sampleStarts.fill(0);
     sampleCounts.fill(0);
+    triggeredFrame = null;
+    triggerArmed = true;
+    if (triggerEnabled.checked) $("trigger-state").textContent = "Armed — waiting for edge";
     scheduleDraw();
 });
 window.addEventListener("resize", scheduleDraw);
 verticalScale.addEventListener("change", scheduleDraw);
+[spectrumSource, spectrumMode, spectrumWindow].forEach(control => control.addEventListener("change", scheduleDraw));
+spectrumEnabled.addEventListener("change", () => {
+    document.querySelector(".spectrum-card").classList.toggle("enabled", spectrumEnabled.checked);
+    scheduleDraw();
+});
 sampleRateControl.addEventListener("change", () => {
     if (socket?.readyState === WebSocket.OPEN) {
         socket.send(`rate:${sampleRateControl.value}`);
@@ -403,6 +672,26 @@ channelInputs.forEach(input => input.addEventListener("change", () => sendChanne
 attenuationControl.addEventListener("change", () => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(`atten:${attenuationControl.value}`);
 });
+[triggerEnabled, triggerMode, triggerSource, triggerEdge, triggerLevel].forEach(control =>
+    control.addEventListener("change", () => {
+        triggerArmed = true;
+        triggeredFrame = null;
+        $("trigger-state").textContent = triggerEnabled.checked ? "Armed — waiting for edge" : "Trigger off";
+        scheduleDraw();
+    }));
+triggerPosition.addEventListener("input", () => {
+    $("trigger-position-value").textContent = `${triggerPosition.value}%`;
+    triggerArmed = true;
+    triggeredFrame = null;
+    scheduleDraw();
+});
+$("trigger-arm").addEventListener("click", () => {
+    triggerArmed = true;
+    triggeredFrame = null;
+    triggerEnabled.checked = true;
+    $("trigger-state").textContent = "Armed — waiting for edge";
+    scheduleDraw();
+});
 canvas.addEventListener("wheel", event => {
     event.preventDefault();
     const direction = event.deltaY > 0 ? 1 : -1;
@@ -411,6 +700,7 @@ canvas.addEventListener("wheel", event => {
     historySlider.value = String(next);
     historySlider.dispatchEvent(new Event("input"));
 }, { passive: false });
+initializeMathControls();
 historySlider.dispatchEvent(new Event("input"));
 connect();
 updateChannelLegend();

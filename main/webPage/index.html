@@ -23,6 +23,7 @@
         </section>
 
         <div class="workspace">
+        <div class="visual-stack">
         <section class="scope-card">
             <div class="scope-toolbar">
                 <div class="channel-legend" id="channel-legend"></div>
@@ -35,6 +36,26 @@
                 <canvas id="scope" aria-label="ADC waveform"></canvas>
             </div>
         </section>
+
+        <section class="scope-card spectrum-card">
+            <div class="scope-toolbar spectrum-toolbar">
+                <div class="channel-legend"><span style="--channel-color:#66e0e5">FFT spectrum</span></div>
+                <div class="spectrum-options">
+                    <label><input id="spectrum-enabled" type="checkbox"> Enable</label>
+                    <select id="spectrum-source" aria-label="Spectrum source"></select>
+                    <select id="spectrum-mode" aria-label="Spectrum display mode">
+                        <option value="db">Magnitude, dB</option><option value="magnitude">Magnitude</option>
+                        <option value="psd">Power spectrum</option><option value="phase">Phase</option>
+                    </select>
+                    <select id="spectrum-window" aria-label="FFT window">
+                        <option value="hann">Hann window</option><option value="hamming">Hamming window</option>
+                        <option value="blackman">Blackman window</option><option value="rectangular">Rectangular</option>
+                    </select>
+                </div>
+            </div>
+            <div class="spectrum-canvas-wrap"><canvas id="spectrum" aria-label="Frequency spectrum"></canvas></div>
+        </section>
+        </div>
 
         <section class="controls">
             <label for="history-size">
@@ -84,6 +105,26 @@
                 </select>
                 <small>ESP-IDF requires one attenuation for the whole ADC1 unit.</small>
             </div>
+
+            <fieldset class="control-group">
+                <legend>Trigger</legend>
+                <label class="switch-row"><input id="trigger-enabled" type="checkbox"><span>Enabled</span></label>
+                <div class="compact-grid">
+                    <label>Mode<select id="trigger-mode"><option value="auto">Auto</option><option value="normal">Normal</option><option value="single">Single</option></select></label>
+                    <label>Source<select id="trigger-source"></select></label>
+                    <label>Edge<select id="trigger-edge"><option value="rising">Rising ↗</option><option value="falling">Falling ↘</option><option value="either">Either ↕</option></select></label>
+                    <label>Level<input id="trigger-level" type="number" value="2048" min="0" max="4095" step="1"></label>
+                    <label>Position<input id="trigger-position" type="range" min="10" max="90" value="30" step="5"><output id="trigger-position-value">30%</output></label>
+                </div>
+                <button id="trigger-arm" type="button" class="secondary">Arm</button>
+                <small id="trigger-state">Trigger off</small>
+            </fieldset>
+
+            <fieldset class="control-group">
+                <legend>Math channels & transformations</legend>
+                <div id="math-controls"></div>
+                <small>Math is calculated from time-aligned visible samples.</small>
+            </fieldset>
         </section>
         </div>
     </main>
