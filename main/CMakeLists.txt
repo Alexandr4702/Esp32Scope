@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "main.cpp"
+        "application.cpp"
         "adc_stream.cpp"
         "web_server.cpp"
         "wifi_station.cpp"
