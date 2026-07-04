@@ -6,6 +6,7 @@
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "freertos/task.h"
+#include "mdns.h"
 #include "nvs_flash.h"
 
 scope::Application &scope::Application::instance() noexcept
@@ -19,6 +20,8 @@ void scope::Application::start() noexcept
     initialize_nvs();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    initialize_mdns();
+
     wifi_.start({this, connection_started, connection_stopped});
 
     // Wi-Fi is pinned to core 0 by ESP-IDF; acquisition owns core 1.
@@ -53,6 +56,15 @@ void scope::Application::initialize_nvs() noexcept
         result = nvs_flash_init();
     }
     ESP_ERROR_CHECK(result);
+}
+
+void scope::Application::initialize_mdns() noexcept
+{
+    ESP_ERROR_CHECK(mdns_init());
+    ESP_ERROR_CHECK(mdns_hostname_set(CONFIG_SCOPE_MDNS_HOSTNAME));
+    ESP_ERROR_CHECK(mdns_instance_name_set("ESP32 Scope"));
+    ESP_ERROR_CHECK(mdns_service_add("ESP32 Scope", "_http", "_tcp", 80,
+                                     nullptr, 0));
 }
 
 [[noreturn]] void scope::Application::adc_task(void *context) noexcept

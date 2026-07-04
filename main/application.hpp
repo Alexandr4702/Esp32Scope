@@ -30,6 +30,7 @@ private:
     static void connection_stopped(void *context) noexcept;
     static void send_samples(void *context, const void *data, size_t size) noexcept;
     static void initialize_nvs() noexcept;
+    static void initialize_mdns() noexcept;
     [[noreturn]] static void adc_task(void *context) noexcept;
 
     WebServer web_server_;

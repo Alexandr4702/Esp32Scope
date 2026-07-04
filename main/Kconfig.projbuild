@@ -16,4 +16,11 @@ config SCOPE_WIFI_PASSWORD
     string "Wi-Fi password"
     default ""
 
+config SCOPE_MDNS_HOSTNAME
+    string "Local network hostname"
+    default "esp32scope"
+    help
+        Hostname advertised over mDNS. Open the web interface at
+        http://<hostname>.local/ from a device on the same network.
+
 endmenu

@@ -1,4 +1,5 @@
 build
+managed_components
 main/webPage/node_modules
 main/proto/wsInterface.pb.c
 main/proto/wsInterface.pb.h

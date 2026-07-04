@@ -24,7 +24,8 @@ void scope::WifiStation::handle_event(esp_event_base_t base, int32_t event_id) n
         if (callbacks_.disconnected) callbacks_.disconnected(callbacks_.context);
         esp_wifi_connect();
     } else if (base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ESP_LOGI(kTag, "IP address acquired");
+        ESP_LOGI(kTag, "IP address acquired; open http://%s.local/",
+                 CONFIG_SCOPE_MDNS_HOSTNAME);
         if (callbacks_.connected) callbacks_.connected(callbacks_.context);
     }
 }

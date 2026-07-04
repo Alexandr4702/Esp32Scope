@@ -13,6 +13,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         freertos
+        mdns
         nvs_flash
     EMBED_FILES
         "webPage/index.html"

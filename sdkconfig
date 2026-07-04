@@ -689,6 +689,7 @@ CONFIG_PARTITION_TABLE_MD5=y
 CONFIG_SCOPE_SAMPLE_RATE_HZ=200000
 CONFIG_SCOPE_WIFI_SSID="CGA2121_jbfFjGQ"
 CONFIG_SCOPE_WIFI_PASSWORD="aKxG9xN6vKaYwYjLN4"
+CONFIG_SCOPE_MDNS_HOSTNAME="esp32scope"
 # end of ESP32 Scope
 
 #
@@ -781,6 +782,13 @@ CONFIG_COMPILER_CXX_GLIBCXX_CONSTEXPR_NO_CHANGE=y
 #
 # If a component configuration is missing, please add it to the main component's requirements
 #
+
+#
+# Console Library
+#
+# default:
+# CONFIG_CONSOLE_SORTED_HELP is not set
+# end of Console Library
 
 #
 # eFuse Bit Manager
@@ -2600,6 +2608,66 @@ CONFIG_VFS_SEMIHOSTFS_MAX_MOUNT_POINTS=1
 # default:
 CONFIG_VFS_INITIALIZE_DEV_NULL=y
 # end of Virtual file system
+
+#
+# mDNS
+#
+# default:
+CONFIG_MDNS_MAX_INTERFACES=3
+# default:
+CONFIG_MDNS_MAX_SERVICES=10
+# default:
+CONFIG_MDNS_TASK_PRIORITY=1
+# default:
+CONFIG_MDNS_ACTION_QUEUE_LEN=16
+# default:
+CONFIG_MDNS_TASK_STACK_SIZE=4096
+# default:
+# CONFIG_MDNS_TASK_AFFINITY_NO_AFFINITY is not set
+# default:
+CONFIG_MDNS_TASK_AFFINITY_CPU0=y
+# default:
+# CONFIG_MDNS_TASK_AFFINITY_CPU1 is not set
+# default:
+CONFIG_MDNS_TASK_AFFINITY=0x0
+
+#
+# MDNS Memory Configuration
+#
+# default:
+CONFIG_MDNS_TASK_CREATE_FROM_INTERNAL=y
+# default:
+CONFIG_MDNS_MEMORY_ALLOC_INTERNAL=y
+# default:
+# CONFIG_MDNS_MEMORY_CUSTOM_IMPL is not set
+# end of MDNS Memory Configuration
+
+# default:
+CONFIG_MDNS_SERVICE_ADD_TIMEOUT_MS=2000
+# default:
+CONFIG_MDNS_TIMER_PERIOD_MS=100
+# default:
+# CONFIG_MDNS_NETWORKING_SOCKET is not set
+# default:
+# CONFIG_MDNS_SKIP_SUPPRESSING_OWN_QUERIES is not set
+# default:
+# CONFIG_MDNS_ENABLE_DEBUG_PRINTS is not set
+# default:
+CONFIG_MDNS_ENABLE_CONSOLE_CLI=y
+# default:
+# CONFIG_MDNS_RESPOND_REVERSE_QUERIES is not set
+# default:
+CONFIG_MDNS_MULTIPLE_INSTANCE=y
+
+#
+# MDNS Predefined interfaces
+#
+# default:
+CONFIG_MDNS_PREDEF_NETIF_STA=y
+# default:
+CONFIG_MDNS_PREDEF_NETIF_AP=y
+# end of MDNS Predefined interfaces
+# end of mDNS
 # end of Component config
 
 # default:
