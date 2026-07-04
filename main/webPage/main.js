@@ -142,8 +142,8 @@ function unpackSamples(packet) {
     let accumulator = 0;
     let accumulatedBits = 0;
     let offset = 17;
+    let channel = firstChannel;
     for (let i = 0; i < count; i++) {
-        const channel = (firstChannel + i) % channelCount;
         const bits = bitWidths[channel];
         while (accumulatedBits < bits) {
             if (offset >= packet.length) throw new Error("Truncated packed ADC payload");
@@ -153,6 +153,7 @@ function unpackSamples(packet) {
         channels[channel][positions[channel]++] = accumulator & (2 ** bits - 1);
         accumulator = Math.floor(accumulator / 2 ** bits);
         accumulatedBits -= bits;
+        if (++channel === channelCount) channel = 0;
     }
     if (gpios.join() !== activeGpios.join() || bitWidths.join() !== activeBitWidths.join()) {
         sampleStarts.fill(0);

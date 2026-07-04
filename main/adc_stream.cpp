@@ -98,8 +98,9 @@ size_t pack_samples(const uint8_t *input, size_t input_size, uint16_t bit_widths
     uint32_t accumulator = 0;
     unsigned accumulated_bits = 0;
     size_t output_size = kPackedHeaderSize;
+    uint8_t channel_index = first_channel_index;
     for (size_t i = 0; i < sample_count; ++i) {
-        const uint8_t bit_width = active_widths[(first_channel_index + i) % channel_count];
+        const uint8_t bit_width = active_widths[channel_index];
         const uint32_t mask = (1u << bit_width) - 1;
         const uint16_t raw = static_cast<uint16_t>(input[i * 2]) |
                              (static_cast<uint16_t>(input[i * 2 + 1]) << 8);
@@ -110,6 +111,7 @@ size_t pack_samples(const uint8_t *input, size_t input_size, uint16_t bit_widths
             accumulator >>= 8;
             accumulated_bits -= 8;
         }
+        if (++channel_index == channel_count) channel_index = 0;
     }
     if (accumulated_bits != 0) output[output_size++] = accumulator & 0xff;
     return output_size;
