@@ -22,7 +22,7 @@ void scope::Application::start() noexcept
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     initialize_mdns();
     web_server_.set_sample_rate_control(
-        {this, sample_rate, bit_width, channels, attenuation});
+        {this, sample_rate, bit_widths, channels, attenuation});
 
     wifi_.start({this, connection_started, connection_stopped});
 
@@ -59,14 +59,14 @@ uint32_t scope::Application::sample_rate(void *context,
     return application->requested_sample_rate_.load();
 }
 
-uint8_t scope::Application::bit_width(void *context,
-                                      uint8_t requested_width) noexcept
+uint16_t scope::Application::bit_widths(void *context,
+                                        uint16_t requested_widths) noexcept
 {
     auto *application = static_cast<Application *>(context);
-    if (requested_width != 0) {
-        application->requested_bit_width_.store(requested_width);
+    if (requested_widths != UINT16_MAX) {
+        application->requested_bit_widths_.store(requested_widths);
     }
-    return application->requested_bit_width_.load();
+    return application->requested_bit_widths_.load();
 }
 
 uint8_t scope::Application::channels(void *context, uint8_t requested_mask) noexcept
@@ -111,7 +111,7 @@ void scope::Application::initialize_mdns() noexcept
     auto *application = static_cast<Application *>(context);
     AdcStream stream{{application, send_samples},
                      application->requested_sample_rate_,
-                     application->requested_bit_width_,
+                     application->requested_bit_widths_,
                      application->requested_channel_mask_,
                      application->requested_attenuation_};
     stream.run();

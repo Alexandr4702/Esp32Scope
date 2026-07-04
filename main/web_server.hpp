@@ -12,7 +12,7 @@ namespace scope {
 struct SampleRateControl {
     void *context = nullptr;
     uint32_t (*set)(void *context, uint32_t requested_rate) = nullptr;
-    uint8_t (*set_bit_width)(void *context, uint8_t requested_width) = nullptr;
+    uint16_t (*set_bit_widths)(void *context, uint16_t requested_widths) = nullptr;
     uint8_t (*set_channels)(void *context, uint8_t requested_mask) = nullptr;
     uint8_t (*set_attenuation)(void *context, uint8_t requested_attenuation) = nullptr;
 };

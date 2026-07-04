@@ -7,8 +7,8 @@ const connection = $("connection");
 const pauseButton = $("pause");
 const verticalScale = $("vertical-scale");
 const sampleRateControl = $("sample-rate-control");
-const bitWidthControl = $("bit-width");
 const channelInputs = [...document.querySelectorAll("#channel-picker input")];
+const bitWidthControls = [...document.querySelectorAll("#channel-picker select")];
 const attenuationControl = $("adc-attenuation");
 
 const sampleCapacity = Number(historySlider.max);
@@ -17,6 +17,7 @@ const sampleStarts = Array(6).fill(0);
 const sampleCounts = Array(6).fill(0);
 let activeChannelCount = 1;
 let activeGpios = [34];
+let activeBitWidths = [12];
 let maxDataPoints = Number(historySlider.value);
 let socket = null;
 let reconnectTimer = null;
@@ -92,10 +93,7 @@ function connect() {
                     $("sample-rate").textContent = rate.toLocaleString("en-US");
                     updateWindowTime();
                 } else if (event.data.startsWith("bits:")) {
-                    const bits = Number(event.data.slice(5));
-                    bitWidthControl.value = String(bits);
-                    adcMaximum = 2 ** bits - 1;
-                    $("full-scale-option").textContent = `Full scale (0–${adcMaximum})`;
+                    applyBitWidths(Number(event.data.slice(5)));
                     scheduleDraw();
                 } else if (event.data.startsWith("channels:")) {
                     applyChannelMask(Number(event.data.slice(9)));
@@ -126,40 +124,44 @@ function connect() {
 }
 
 function unpackSamples(packet) {
-    if (packet.length < 12 || packet[0] !== 0xa5) {
+    if (packet.length < 17 || packet[0] !== 0xa5) {
         throw new Error("Unsupported ADC packet format");
     }
-    const bits = packet[1];
-    const channelCount = packet[2];
+    const channelCount = packet[1];
+    const firstChannel = packet[2];
     const gpios = [...packet.subarray(3, 3 + channelCount)];
-    const firstChannel = packet[9];
-    const count = packet[10] | (packet[11] << 8);
-    if (bits < 9 || bits > 12 || channelCount < 1 || channelCount > 6 ||
-        firstChannel >= channelCount || packet.length < 12 + Math.ceil(count * bits / 8)) {
+    const bitWidths = [...packet.subarray(9, 9 + channelCount)];
+    const count = packet[15] | (packet[16] << 8);
+    if (channelCount < 1 || channelCount > 6 || firstChannel >= channelCount ||
+        bitWidths.some(bits => bits < 9 || bits > 12)) {
         throw new Error("Invalid packed ADC payload");
     }
     const channels = Array.from({ length: channelCount }, () =>
         new Uint16Array(Math.ceil(count / channelCount)));
     const positions = new Uint32Array(channelCount);
-    const mask = 2 ** bits - 1;
     let accumulator = 0;
     let accumulatedBits = 0;
-    let offset = 12;
+    let offset = 17;
     for (let i = 0; i < count; i++) {
+        const channel = (firstChannel + i) % channelCount;
+        const bits = bitWidths[channel];
         while (accumulatedBits < bits) {
+            if (offset >= packet.length) throw new Error("Truncated packed ADC payload");
             accumulator += packet[offset++] * 2 ** accumulatedBits;
             accumulatedBits += 8;
         }
-        const channel = (firstChannel + i) % channelCount;
-        channels[channel][positions[channel]++] = accumulator & mask;
+        channels[channel][positions[channel]++] = accumulator & (2 ** bits - 1);
         accumulator = Math.floor(accumulator / 2 ** bits);
         accumulatedBits -= bits;
     }
-    if (gpios.join() !== activeGpios.join()) {
+    if (gpios.join() !== activeGpios.join() || bitWidths.join() !== activeBitWidths.join()) {
         sampleStarts.fill(0);
         sampleCounts.fill(0);
     }
     activeGpios = gpios;
+    activeBitWidths = bitWidths;
+    adcMaximum = Math.max(...bitWidths.map(bits => 2 ** bits - 1));
+    $("full-scale-option").textContent = `Full scale (0–${adcMaximum})`;
     updateChannelLegend();
     return { channels: channels.map((values, channel) => values.subarray(0, positions[channel])),
         totalCount: count };
@@ -175,6 +177,17 @@ function updateChannelLegend() {
 
 function applyChannelMask(mask) {
     channelInputs.forEach((input, index) => input.checked = (mask & (1 << index)) !== 0);
+}
+
+function applyBitWidths(value) {
+    bitWidthControls.forEach((control, index) =>
+        control.value = String(9 + ((value >> (index * 2)) & 3)));
+}
+
+function sendBitWidths() {
+    const value = bitWidthControls.reduce((packed, control, index) =>
+        packed | ((Number(control.value) - 9) << (index * 2)), 0);
+    if (socket?.readyState === WebSocket.OPEN) socket.send(`bits:${value}`);
 }
 
 function sendChannelMask(changedInput) {
@@ -384,11 +397,7 @@ sampleRateControl.addEventListener("change", () => {
         socket.send(`rate:${sampleRateControl.value}`);
     }
 });
-bitWidthControl.addEventListener("change", () => {
-    if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(`bits:${bitWidthControl.value}`);
-    }
-});
+bitWidthControls.forEach(control => control.addEventListener("change", sendBitWidths));
 channelInputs.forEach(input => input.addEventListener("change", () => sendChannelMask(input)));
 attenuationControl.addEventListener("change", () => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(`atten:${attenuationControl.value}`);

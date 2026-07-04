@@ -105,12 +105,12 @@ esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
         const char *end = payload + frame.len;
         const auto result = std::from_chars(begin, end, requested_value);
         if (result.ec != std::errc{} || result.ptr != end ||
-            requested_value < 9 || requested_value > 12 ||
-            server->sample_rate_control_.set_bit_width == nullptr) {
+            requested_value > 0x0fff ||
+            server->sample_rate_control_.set_bit_widths == nullptr) {
             return ESP_ERR_INVALID_ARG;
         }
         response_prefix = "bits:";
-        value = server->sample_rate_control_.set_bit_width(
+        value = server->sample_rate_control_.set_bit_widths(
             server->sample_rate_control_.context, requested_value);
     } else if (std::strncmp(payload, channels_prefix, sizeof(channels_prefix) - 1) == 0) {
         const char *begin = payload + sizeof(channels_prefix) - 1;
@@ -136,10 +136,10 @@ esp_err_t scope::WebServer::handle_websocket(httpd_req_t *request) noexcept
         value = server->sample_rate_control_.set(
             server->sample_rate_control_.context, 0);
     } else if (std::strcmp(payload, "get_bits") == 0 &&
-               server->sample_rate_control_.set_bit_width != nullptr) {
+               server->sample_rate_control_.set_bit_widths != nullptr) {
         response_prefix = "bits:";
-        value = server->sample_rate_control_.set_bit_width(
-            server->sample_rate_control_.context, 0);
+        value = server->sample_rate_control_.set_bit_widths(
+            server->sample_rate_control_.context, UINT16_MAX);
     } else if (std::strcmp(payload, "get_channels") == 0 &&
                server->sample_rate_control_.set_channels != nullptr) {
         response_prefix = "channels:";

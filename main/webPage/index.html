@@ -64,35 +64,25 @@
                 </select>
                 <small>Tip: use the mouse wheel over the graph to zoom horizontally.</small>
             </div>
-            <div class="scale-row">
-                <label for="bit-width"><span>ADC resolution</span></label>
-                <select id="bit-width">
-                    <option value="9">9 bit</option>
-                    <option value="10">10 bit</option>
-                    <option value="11">11 bit</option>
-                    <option value="12" selected>12 bit</option>
-                </select>
-                <small>DMA bandwidth remains 16 bits per sample.</small>
-            </div>
             <div class="scale-row channel-picker">
                 <label><span>ADC1 channels</span></label>
                 <div id="channel-picker">
-                    <label><input type="checkbox" value="32">GPIO32</label>
-                    <label><input type="checkbox" value="33">GPIO33</label>
-                    <label><input type="checkbox" value="34" checked>GPIO34</label>
-                    <label><input type="checkbox" value="35">GPIO35</label>
-                    <label><input type="checkbox" value="36">GPIO36</label>
-                    <label><input type="checkbox" value="39">GPIO39</label>
+                    <label><input type="checkbox" value="32"><span>GPIO32</span><select><option>9</option><option>10</option><option>11</option><option selected>12</option></select><small>bit</small></label>
+                    <label><input type="checkbox" value="33"><span>GPIO33</span><select><option>9</option><option>10</option><option>11</option><option selected>12</option></select><small>bit</small></label>
+                    <label><input type="checkbox" value="34" checked><span>GPIO34</span><select><option>9</option><option>10</option><option>11</option><option selected>12</option></select><small>bit</small></label>
+                    <label><input type="checkbox" value="35"><span>GPIO35</span><select><option>9</option><option>10</option><option>11</option><option selected>12</option></select><small>bit</small></label>
+                    <label><input type="checkbox" value="36"><span>GPIO36</span><select><option>9</option><option>10</option><option>11</option><option selected>12</option></select><small>bit</small></label>
+                    <label><input type="checkbox" value="39"><span>GPIO39</span><select><option>9</option><option>10</option><option>11</option><option selected>12</option></select><small>bit</small></label>
                 </div>
                 <small>The total sample rate is shared between active channels.</small>
             </div>
             <div class="scale-row">
-                <label for="adc-attenuation"><span>Input range</span></label>
+                <label for="adc-attenuation"><span>Input range (all channels)</span></label>
                 <select id="adc-attenuation">
                     <option value="0">0 dB</option><option value="1">2.5 dB</option>
                     <option value="2">6 dB</option><option value="3" selected>12 dB</option>
                 </select>
-                <small>Higher attenuation allows a higher input voltage.</small>
+                <small>ESP-IDF requires one attenuation for the whole ADC1 unit.</small>
             </div>
         </section>
         </div>
