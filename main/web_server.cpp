@@ -16,12 +16,12 @@ constexpr size_t kMaxClients = 8;
 struct EmbeddedFile { const char *start; const char *end; };
 struct Route { const char *uri; const char *content_type; EmbeddedFile file; };
 
-extern const char index_html_start[] asm("_binary_index_html_start");
-extern const char index_html_end[] asm("_binary_index_html_end");
-extern const char main_js_start[] asm("_binary_main_js_start");
-extern const char main_js_end[] asm("_binary_main_js_end");
-extern const char style_css_start[] asm("_binary_style_css_start");
-extern const char style_css_end[] asm("_binary_style_css_end");
+extern const char index_html_start[] asm("_binary_index_html_gz_start");
+extern const char index_html_end[] asm("_binary_index_html_gz_end");
+extern const char main_js_start[] asm("_binary_main_js_gz_start");
+extern const char main_js_end[] asm("_binary_main_js_gz_end");
+extern const char style_css_start[] asm("_binary_style_css_gz_start");
+extern const char style_css_end[] asm("_binary_style_css_gz_end");
 
 const std::array<Route, 3> kRoutes = {{
     {"/", "text/html", {index_html_start, index_html_end}},
@@ -56,6 +56,8 @@ esp_err_t scope::WebServer::send_file(httpd_req_t *request) noexcept
 {
     const auto *route = static_cast<const Route *>(request->user_ctx);
     httpd_resp_set_type(request, route->content_type);
+    httpd_resp_set_hdr(request, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(request, "Vary", "Accept-Encoding");
     httpd_resp_set_hdr(request, "Cache-Control", "no-store");
     return httpd_resp_send(request, route->file.start,
                            route->file.end - route->file.start);

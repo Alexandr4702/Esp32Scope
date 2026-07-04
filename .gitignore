@@ -6,4 +6,5 @@ main/proto/wsInterface.pb.h
 main/webPage/wsInterface_pb.js
 main/webPage/package-lock.json
 main/webPage/bundle.js
+main/webPage/*.gz
 sdkconfig.old

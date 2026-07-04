@@ -36,12 +36,17 @@ let reconnectTimer = null;
 let reconnectDelay = 500;
 let paused = false;
 let drawPending = false;
+let lastDrawAt = 0;
 let rateCounter = 0;
 let measuredRate = 0;
 let rateStartedAt = performance.now();
 let adcMaximum = 4095;
 let triggerArmed = true;
 let triggeredFrame = null;
+let lastRenderedRaw = [];
+let triggerGeometry = null;
+let triggerDrag = null;
+let triggerDragGeometry = null;
 const mathChannels = [
     { enabled: false, operation: "subtract", a: 0, b: 1 },
     { enabled: false, operation: "smooth", a: 0, b: 1 }
@@ -565,10 +570,12 @@ function drawSpectrum(raw) {
     spectrumContext.stroke();
 }
 
-function draw() {
+function draw(timestamp = performance.now()) {
     drawPending = false;
+    lastDrawAt = timestamp;
     const ratio = resizeCanvas();
     const raw = rawFrame();
+    lastRenderedRaw = raw;
     const series = raw.map((values, index) => ({ values, color: channelColors[index] }));
     mathChannels.forEach((channel, index) => {
         if (channel.enabled && raw.length) series.push({ values: calculateMath(channel, raw), color: channelColors[6 + index] });
@@ -579,12 +586,17 @@ function draw() {
     }));
     let yMinimum = 0, yMaximum = adcMaximum;
     if (verticalScale.value === "auto" && Number.isFinite(minimum)) {
+        if (triggerEnabled.checked) {
+            minimum = Math.min(minimum, Number(triggerLevel.value));
+            maximum = Math.max(maximum, Number(triggerLevel.value));
+        }
         const padding = Math.max(1, (maximum - minimum) * 0.1);
         yMinimum = minimum - padding;
         yMaximum = maximum + padding;
         if (yMaximum - yMinimum < 2) { yMinimum -= 1; yMaximum += 1; }
     }
     const { left, plotWidth, plotHeight } = drawGrid(canvas.width, canvas.height, ratio, yMinimum, yMaximum);
+    triggerGeometry = { left, plotWidth, plotHeight, ratio, yMinimum, yMaximum };
     series.forEach(item => {
         const count = item.values.length;
         if (count < 2) return;
@@ -623,16 +635,19 @@ function draw() {
         context.strokeStyle = "#ffcc66"; context.setLineDash([5 * ratio, 5 * ratio]); context.beginPath();
         context.moveTo(left, y); context.lineTo(canvas.width, y); context.stroke(); context.setLineDash([]);
         const x = left + plotWidth * Number(triggerPosition.value) / 100;
+        context.strokeStyle = "rgba(255, 204, 102, .45)"; context.setLineDash([3 * ratio, 6 * ratio]); context.beginPath();
+        context.moveTo(x, 0); context.lineTo(x, plotHeight); context.stroke(); context.setLineDash([]);
         context.fillStyle = "#ffcc66"; context.beginPath(); context.moveTo(x, 0); context.lineTo(x - 5 * ratio, 8 * ratio); context.lineTo(x + 5 * ratio, 8 * ratio); context.fill();
     }
     drawSpectrum(raw);
 }
 
 function scheduleDraw() {
-    if (!drawPending) {
-        drawPending = true;
-        requestAnimationFrame(draw);
-    }
+    if (drawPending) return;
+    drawPending = true;
+    const delay = Math.max(0, 33 - (performance.now() - lastDrawAt));
+    if (delay > 1) setTimeout(() => requestAnimationFrame(draw), delay);
+    else requestAnimationFrame(draw);
 }
 
 historySlider.addEventListener("input", () => {
@@ -654,6 +669,30 @@ $("clear").addEventListener("click", () => {
     triggerArmed = true;
     if (triggerEnabled.checked) $("trigger-state").textContent = "Armed — waiting for edge";
     scheduleDraw();
+});
+$("save-csv").addEventListener("click", () => {
+    if (!lastRenderedRaw.length || !lastRenderedRaw[0].length) return;
+    const math = mathChannels.map(channel => channel.enabled ? calculateMath(channel, lastRenderedRaw) : null);
+    const headers = ["time_s", ...activeGpios.map(gpio => `GPIO${gpio}`),
+        ...math.flatMap((values, index) => values ? [`M${index + 1}`] : [])];
+    const sampleRate = measuredRate / Math.max(1, activeChannelCount);
+    const triggerIndex = triggerEnabled.checked ?
+        Math.round((lastRenderedRaw[0].length - 1) * Number(triggerPosition.value) / 100) :
+        lastRenderedRaw[0].length - 1;
+    const lines = [headers.join(",")];
+    for (let index = 0; index < lastRenderedRaw[0].length; index++) {
+        const time = sampleRate > 0 ? (index - triggerIndex) / sampleRate : 0;
+        const row = [time.toPrecision(10), ...lastRenderedRaw.map(channel => channel[index]),
+            ...math.flatMap(values => values ? [values[index]] : [])];
+        lines.push(row.join(","));
+    }
+    const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.href = URL.createObjectURL(blob);
+    link.download = `esp32-scope-${timestamp}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 0);
 });
 window.addEventListener("resize", scheduleDraw);
 verticalScale.addEventListener("change", scheduleDraw);
@@ -700,8 +739,71 @@ canvas.addEventListener("wheel", event => {
     historySlider.value = String(next);
     historySlider.dispatchEvent(new Event("input"));
 }, { passive: false });
+
+function triggerPointerPosition(event) {
+    const rectangle = canvas.getBoundingClientRect();
+    const ratio = triggerGeometry?.ratio || 1;
+    return { x: (event.clientX - rectangle.left) * ratio, y: (event.clientY - rectangle.top) * ratio };
+}
+
+function triggerHitTest(event) {
+    if (!triggerEnabled.checked || !triggerGeometry) return null;
+    const { x, y } = triggerPointerPosition(event);
+    const geometry = triggerDragGeometry || triggerGeometry;
+    const positionX = geometry.left + geometry.plotWidth * Number(triggerPosition.value) / 100;
+    const levelY = geometry.plotHeight - (Number(triggerLevel.value) - geometry.yMinimum) *
+        geometry.plotHeight / (geometry.yMaximum - geometry.yMinimum);
+    const tolerance = 12 * geometry.ratio;
+    if (Math.abs(x - positionX) <= tolerance && y <= geometry.plotHeight) return "position";
+    if (Math.abs(y - levelY) <= tolerance && x >= geometry.left) return "level";
+    return null;
+}
+
+function updateTriggerFromPointer(event) {
+    const { x, y } = triggerPointerPosition(event);
+    const geometry = triggerDragGeometry || triggerGeometry;
+    if (triggerDrag === "position") {
+        const percent = 100 * (x - geometry.left) / geometry.plotWidth;
+        triggerPosition.value = String(Math.max(Number(triggerPosition.min),
+            Math.min(Number(triggerPosition.max), Math.round(percent))));
+        $("trigger-position-value").textContent = `${triggerPosition.value}%`;
+    } else if (triggerDrag === "level") {
+        const value = geometry.yMaximum - y * (geometry.yMaximum - geometry.yMinimum) / geometry.plotHeight;
+        triggerLevel.value = String(Math.max(0, Math.min(adcMaximum, Math.round(value))));
+    }
+    triggerArmed = true;
+    triggeredFrame = null;
+    $("trigger-state").textContent = "Armed — waiting for edge";
+    scheduleDraw();
+}
+
+canvas.addEventListener("pointerdown", event => {
+    triggerDrag = triggerHitTest(event);
+    if (!triggerDrag) return;
+    triggerDragGeometry = { ...triggerGeometry };
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    updateTriggerFromPointer(event);
+});
+canvas.addEventListener("pointermove", event => {
+    if (triggerDrag) {
+        event.preventDefault();
+        updateTriggerFromPointer(event);
+        return;
+    }
+    const hit = triggerHitTest(event);
+    canvas.style.cursor = hit === "position" ? "col-resize" : hit === "level" ? "row-resize" : "default";
+});
+function finishTriggerDrag(event) {
+    if (!triggerDrag) return;
+    triggerDrag = null;
+    triggerDragGeometry = null;
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+}
+canvas.addEventListener("pointerup", finishTriggerDrag);
+canvas.addEventListener("pointercancel", finishTriggerDrag);
 initializeMathControls();
 historySlider.dispatchEvent(new Event("input"));
-connect();
 updateChannelLegend();
 scheduleDraw();
+requestAnimationFrame(() => setTimeout(connect, 0));

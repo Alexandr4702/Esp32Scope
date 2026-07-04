@@ -51,7 +51,7 @@ button:hover { filter: brightness(1.12); }
 button.secondary { border-color: #314158; background: #172232; color: #b8c7d9; }
 
 .canvas-wrap { position: relative; height: clamp(320px, 58vh, 680px); background: #090e15; }
-#scope { display: block; width: 100%; height: 100%; }
+#scope { display: block; width: 100%; height: 100%; touch-action: none; }
 .spectrum-canvas-wrap { display: none; height: 230px; background: #090e15; }
 .spectrum-card.enabled .spectrum-canvas-wrap { display: block; }
 #spectrum { display: block; width: 100%; height: 100%; }

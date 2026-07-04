@@ -28,6 +28,7 @@
             <div class="scope-toolbar">
                 <div class="channel-legend" id="channel-legend"></div>
                 <div class="actions">
+                    <button id="save-csv" type="button" class="secondary">Save CSV</button>
                     <button id="pause" type="button">Pause</button>
                     <button id="clear" type="button" class="secondary">Clear</button>
                 </div>
@@ -114,7 +115,7 @@
                     <label>Source<select id="trigger-source"></select></label>
                     <label>Edge<select id="trigger-edge"><option value="rising">Rising ↗</option><option value="falling">Falling ↘</option><option value="either">Either ↕</option></select></label>
                     <label>Level<input id="trigger-level" type="number" value="2048" min="0" max="4095" step="1"></label>
-                    <label>Position<input id="trigger-position" type="range" min="10" max="90" value="30" step="5"><output id="trigger-position-value">30%</output></label>
+                    <label>Position<input id="trigger-position" type="range" min="10" max="90" value="30" step="1"><output id="trigger-position-value">30%</output></label>
                 </div>
                 <button id="trigger-arm" type="button" class="secondary">Arm</button>
                 <small id="trigger-state">Trigger off</small>
