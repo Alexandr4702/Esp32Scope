@@ -1,0 +1,19 @@
+menu "ESP32 Scope"
+
+config SCOPE_SAMPLE_RATE_HZ
+    int "ADC sample rate (samples/second)"
+    range 20000 1000000
+    default 200000
+    help
+        Continuous ADC conversion rate. 200 kSa/s is a practical fast
+        default when samples are streamed over Wi-Fi.
+
+config SCOPE_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+
+config SCOPE_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+
+endmenu
