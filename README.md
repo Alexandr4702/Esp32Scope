@@ -1,12 +1,14 @@
 # Esp32Scope
 
 Esp32Scope turns an ESP32-WROOM-32D into a small browser-based oscilloscope.
-It continuously samples GPIO34 through ADC1, streams raw 12-bit samples over
-WebSocket, and serves the web interface directly from the ESP32.
+It continuously samples GPIO34 through ADC1, losslessly bit-packs 9- to 12-bit
+samples for streaming over WebSocket, and serves the web interface directly
+from the ESP32.
 
 The interface displays the waveform, sample rate, minimum and maximum values,
-and supports pause, clear, horizontal zoom, and automatic or full vertical
-scale. This is an experimental tool for low-voltage signals, not an isolated
+and supports pause, clear, time-based horizontal zoom, selectable ADC1 input,
+resolution and attenuation, and automatic or full vertical scale. This is an
+experimental tool for low-voltage signals, not an isolated
 or calibrated laboratory oscilloscope.
 
 ## Build and flash
