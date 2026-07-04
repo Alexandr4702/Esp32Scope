@@ -6,8 +6,8 @@ samples for streaming over WebSocket, and serves the web interface directly
 from the ESP32.
 
 The interface displays the waveform, sample rate, minimum and maximum values,
-and supports pause, clear, time-based horizontal zoom, selectable ADC1 input,
-resolution and attenuation, and automatic or full vertical scale. This is an
+and supports pause, clear, time-based horizontal zoom, up to six selectable
+ADC1 inputs, resolution and attenuation, and automatic or full vertical scale. This is an
 experimental tool for low-voltage signals, not an isolated
 or calibrated laboratory oscilloscope.
 
