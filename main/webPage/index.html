@@ -1,27 +1,59 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic Line Chart</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1018">
+    <title>ESP32 Scope</title>
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
+    <main>
+        <header>
+            <div>
+                <p class="eyebrow">ESP32 · GPIO34 · ADC1</p>
+                <h1>ESP32 Scope</h1>
+            </div>
+            <div id="connection" class="status status-offline"><span></span><strong>Connecting…</strong></div>
+        </header>
 
-    <div id="div_g"></div>
+        <section class="metrics" aria-label="Signal statistics">
+            <article><span>Sample rate</span><strong id="sample-rate">—</strong><small>Sa/s</small></article>
+            <article><span>Minimum</span><strong id="minimum">—</strong><small>ADC</small></article>
+            <article><span>Maximum</span><strong id="maximum">—</strong><small>ADC</small></article>
+            <article><span>Time window</span><strong id="window-time">—</strong><small>ms</small></article>
+        </section>
 
-    <div class="slidecontainer">
-        <input type="range" min="1" max="100" value="50" class="slider" id="myRange">
-    </div>
+        <section class="scope-card">
+            <div class="scope-toolbar">
+                <span>Channel 1</span>
+                <div class="actions">
+                    <button id="pause" type="button">Pause</button>
+                    <button id="clear" type="button" class="secondary">Clear</button>
+                </div>
+            </div>
+            <div class="canvas-wrap">
+                <canvas id="scope" aria-label="ADC waveform"></canvas>
+            </div>
+        </section>
 
-    <!-- Create a container for the chart -->
-    <!-- <div id="chart-container">
-        <canvas id="chart" width="800" height="400"></canvas>
-    </div> -->
-
-    <script src="bundle.js"></script>
+        <section class="controls">
+            <label for="history-size">
+                <span>Horizontal scale</span>
+                <output id="history-size-value" for="history-size">8,000 samples</output>
+            </label>
+            <input type="range" min="500" max="20000" step="500" value="8000" id="history-size">
+            <div class="range-labels"><span>500</span><span>20 000</span></div>
+            <div class="scale-row">
+                <label for="vertical-scale"><span>Vertical scale</span></label>
+                <select id="vertical-scale">
+                    <option value="auto">Auto scale</option>
+                    <option value="full">Full scale (0–4095)</option>
+                </select>
+                <small>Tip: use the mouse wheel over the graph to zoom horizontally.</small>
+            </div>
+        </section>
+    </main>
+    <script src="main.js"></script>
 </body>
-
 </html>
