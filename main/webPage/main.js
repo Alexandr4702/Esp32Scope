@@ -6,6 +6,8 @@ const historyValue = $("history-size-value");
 const connection = $("connection");
 const pauseButton = $("pause");
 const verticalScale = $("vertical-scale");
+const verticalZoom = $("vertical-zoom");
+const verticalCenter = $("vertical-center");
 const sampleRateControl = $("sample-rate-control");
 const channelInputs = [...document.querySelectorAll("#channel-picker input")];
 const bitWidthControls = [...document.querySelectorAll("#channel-picker select")];
@@ -247,6 +249,10 @@ function unpackSamples(packet) {
     activeGpios = gpios;
     activeBitWidths = bitWidths;
     adcMaximum = Math.max(...bitWidths.map(bits => 2 ** bits - 1));
+    verticalCenter.max = String(adcMaximum);
+    if (verticalScale.value !== "manual") verticalCenter.value = String(Math.round(adcMaximum / 2));
+    else verticalCenter.value = String(Math.min(adcMaximum, Number(verticalCenter.value)));
+    updateVerticalControls();
     triggerLevel.max = String(adcMaximum);
     $("full-scale-option").textContent = `Full scale (0–${adcMaximum})`;
     if (configurationChanged) updateChannelLegend();
@@ -461,6 +467,18 @@ function calculateMath(channel, raw) {
         }
     }
     return result;
+}
+
+function updateVerticalControls() {
+    $("vertical-zoom-value").textContent = `${Number(verticalZoom.value).toFixed(2).replace(/0$/, "")}×`;
+    $("vertical-center-value").textContent = Number(verticalCenter.value).toLocaleString();
+}
+
+function manualVerticalRange() {
+    const span = adcMaximum / Number(verticalZoom.value);
+    let center = Number(verticalCenter.value);
+    center = Math.max(span / 2, Math.min(adcMaximum - span / 2, center));
+    return { minimum: center - span / 2, maximum: center + span / 2 };
 }
 
 function updateRecordStatus(force = false) {
@@ -679,6 +697,10 @@ function draw(timestamp = performance.now()) {
         yMinimum = minimum - padding;
         yMaximum = maximum + padding;
         if (yMaximum - yMinimum < 2) { yMinimum -= 1; yMaximum += 1; }
+    } else if (verticalScale.value === "manual") {
+        const range = manualVerticalRange();
+        yMinimum = range.minimum;
+        yMaximum = range.maximum;
     }
     const { left, plotWidth, plotHeight } = drawGrid(canvas.width, canvas.height, ratio, yMinimum, yMaximum);
     triggerGeometry = { left, plotWidth, plotHeight, ratio, yMinimum, yMaximum };
@@ -769,6 +791,15 @@ $("save-csv").addEventListener("click", () => {
 $("record").addEventListener("click", () => recording ? finishRecording() : startRecording());
 window.addEventListener("resize", scheduleDraw);
 verticalScale.addEventListener("change", scheduleDraw);
+[verticalZoom, verticalCenter].forEach(control => control.addEventListener("input", () => {
+    verticalScale.value = "manual";
+    updateVerticalControls();
+    scheduleDraw();
+}));
+$("vertical-auto").addEventListener("click", () => {
+    verticalScale.value = "auto";
+    scheduleDraw();
+});
 [spectrumSource, spectrumMode, spectrumWindow].forEach(control => control.addEventListener("change", scheduleDraw));
 spectrumEnabled.addEventListener("change", () => {
     document.querySelector(".spectrum-card").classList.toggle("enabled", spectrumEnabled.checked);
@@ -807,11 +838,32 @@ $("trigger-arm").addEventListener("click", () => {
 canvas.addEventListener("wheel", event => {
     event.preventDefault();
     const direction = event.deltaY > 0 ? 1 : -1;
+    if (event.shiftKey) {
+        const oldMinimum = triggerGeometry?.yMinimum ?? 0;
+        const oldMaximum = triggerGeometry?.yMaximum ?? adcMaximum;
+        const rectangle = canvas.getBoundingClientRect();
+        const fraction = Math.max(0, Math.min(1, (event.clientY - rectangle.top) / rectangle.height));
+        const anchor = oldMaximum - fraction * (oldMaximum - oldMinimum);
+        const factor = direction > 0 ? 1 / 1.25 : 1.25;
+        const zoom = Math.max(Number(verticalZoom.min), Math.min(Number(verticalZoom.max),
+            Number(verticalZoom.value) * factor));
+        verticalZoom.value = String(zoom);
+        const newSpan = adcMaximum / Number(verticalZoom.value);
+        verticalCenter.value = String(Math.round(anchor + (fraction - 0.5) * newSpan));
+        verticalScale.value = "manual";
+        updateVerticalControls();
+        scheduleDraw();
+        return;
+    }
     const next = Math.max(Number(historySlider.min), Math.min(Number(historySlider.max),
         Number(historySlider.value) + direction * Number(historySlider.step)));
     historySlider.value = String(next);
     historySlider.dispatchEvent(new Event("input"));
 }, { passive: false });
+canvas.addEventListener("dblclick", () => {
+    verticalScale.value = "auto";
+    scheduleDraw();
+});
 
 function triggerPointerPosition(event) {
     const rectangle = canvas.getBoundingClientRect();

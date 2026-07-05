@@ -85,8 +85,16 @@
                 <select id="vertical-scale">
                     <option value="auto">Auto scale</option>
                     <option value="full" id="full-scale-option">Full scale (0–4095)</option>
+                    <option value="manual">Manual</option>
                 </select>
-                <small>Tip: use the mouse wheel over the graph to zoom horizontally.</small>
+                <small>Wheel: horizontal zoom. Shift + wheel: vertical zoom.</small>
+            </div>
+            <div class="vertical-adjustments">
+                <label for="vertical-zoom"><span>Vertical zoom</span><output id="vertical-zoom-value">1.0×</output></label>
+                <input id="vertical-zoom" type="range" min="1" max="32" value="1" step="0.25">
+                <label for="vertical-center"><span>Vertical center</span><output id="vertical-center-value">2048</output></label>
+                <input id="vertical-center" type="range" min="0" max="4095" value="2048" step="1">
+                <button id="vertical-auto" type="button" class="secondary">Fit signal</button>
             </div>
             <div class="scale-row channel-picker">
                 <label><span>ADC1 channels</span></label>

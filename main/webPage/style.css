@@ -71,6 +71,11 @@ input[type="range"] { width: 100%; accent-color: #27c781; cursor: pointer; }
 .scale-row label { display: block; margin: 0; }
 .scale-row select { border: 1px solid #314158; border-radius: 8px; padding: 7px 10px; background: #111b28; color: #dbe7f5; font: inherit; font-size: .78rem; }
 .scale-row small { color: #60738b; text-align: right; }
+.vertical-adjustments { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 7px 10px; margin-top: 10px; padding: 11px; border: 1px solid #26364a; border-radius: 9px; background: rgba(8, 14, 21, .45); }
+.vertical-adjustments label { display: flex; justify-content: space-between; grid-column: 1 / -1; margin: 0; }
+.vertical-adjustments input { grid-column: 1 / -1; }
+.vertical-adjustments output { color: #c6d3e2; font-size: .76rem; font-variant-numeric: tabular-nums; }
+.vertical-adjustments button { grid-column: 1 / -1; margin-top: 3px; }
 .control-group { margin: 16px 0 0; padding: 13px; border: 1px solid #26364a; border-radius: 10px; }
 .control-group legend { padding: 0 7px; color: #91a5bd; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .control-group > small { display: block; margin-top: 9px; color: #60738b; }
