@@ -1,10 +1,13 @@
 #include "application.hpp"
 
+#include <cinttypes>
+
 #include "adc_stream.hpp"
 
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_system.h"
+#include "esp_log.h"
 #include "freertos/task.h"
 #include "mdns.h"
 #include "nvs_flash.h"
@@ -26,8 +29,16 @@ void scope::Application::start() noexcept
 
     wifi_.start({this, connection_started, connection_stopped});
 
+    sample_messages_ = xMessageBufferCreate(kSampleMessageBufferSize);
+    ESP_ERROR_CHECK(sample_messages_ == nullptr ? ESP_ERR_NO_MEM : ESP_OK);
+
+    BaseType_t created = xTaskCreatePinnedToCore(
+        sender_task, kSenderTaskName, kSenderTaskStackSize, this,
+        kSenderTaskPriority, nullptr, 0);
+    ESP_ERROR_CHECK(created == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+
     // Wi-Fi is pinned to core 0 by ESP-IDF; acquisition owns core 1.
-    const BaseType_t created = xTaskCreatePinnedToCore(
+    created = xTaskCreatePinnedToCore(
         adc_task, kAdcTaskName, kAdcTaskStackSize, this,
         kAdcTaskPriority, nullptr, kAdcCore);
     ESP_ERROR_CHECK(created == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
@@ -46,7 +57,15 @@ void scope::Application::connection_stopped(void *context) noexcept
 void scope::Application::send_samples(void *context, const void *data,
                                       size_t size) noexcept
 {
-    static_cast<Application *>(context)->web_server_.broadcast(data, size);
+    auto *application = static_cast<Application *>(context);
+    if (size > kMaximumSamplePacketSize) return;
+    if (xMessageBufferSend(application->sample_messages_, data, size, 0) != size) {
+        static uint32_t dropped_packets = 0;
+        if ((++dropped_packets & 0x3f) == 1) {
+            ESP_LOGW("samples", "Network queue full; dropped %" PRIu32 " packets",
+                     dropped_packets);
+        }
+    }
 }
 
 uint32_t scope::Application::sample_rate(void *context,
@@ -115,4 +134,16 @@ void scope::Application::initialize_mdns() noexcept
                      application->requested_channel_mask_,
                      application->requested_attenuation_};
     stream.run();
+}
+
+[[noreturn]] void scope::Application::sender_task(void *context) noexcept
+{
+    auto *application = static_cast<Application *>(context);
+    static uint8_t packet[kMaximumSamplePacketSize];
+    while (true) {
+        const size_t size = xMessageBufferReceive(application->sample_messages_,
+                                                   packet, sizeof(packet),
+                                                   portMAX_DELAY);
+        if (size != 0) application->web_server_.broadcast(packet, size);
+    }
 }

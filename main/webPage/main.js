@@ -23,7 +23,8 @@ const spectrumSource = $("spectrum-source");
 const spectrumMode = $("spectrum-mode");
 const spectrumWindow = $("spectrum-window");
 
-const sampleCapacity = Number(historySlider.max);
+// Keep extra history outside the visible window for zooming and pre/post-trigger data.
+const sampleCapacity = Number(historySlider.max) * 2;
 const samples = Array.from({ length: 6 }, () => new Uint16Array(sampleCapacity));
 const sampleStarts = Array(6).fill(0);
 const sampleCounts = Array(6).fill(0);
@@ -305,14 +306,6 @@ function sampleAt(channel, index) {
     return samples[channel][(sampleStarts[channel] + index) % sampleCapacity];
 }
 
-function trimSamples() {
-    for (let channel = 0; channel < 6; channel++) {
-        if (sampleCounts[channel] <= maxDataPoints) continue;
-        sampleStarts[channel] = (sampleStarts[channel] + sampleCounts[channel] - maxDataPoints) % sampleCapacity;
-        sampleCounts[channel] = maxDataPoints;
-    }
-}
-
 function updateRate() {
     const now = performance.now();
     const elapsed = now - rateStartedAt;
@@ -338,7 +331,9 @@ function updateWindowTime() {
 }
 
 function windowTimeScale() {
-    const seconds = maxDataPoints * activeChannelCount / measuredRate;
+    const accumulated = sampleCounts.length ? Math.min(...sampleCounts.slice(0, activeChannelCount)) : 0;
+    const visibleSamples = accumulated > 0 ? Math.min(maxDataPoints, accumulated) : maxDataPoints;
+    const seconds = visibleSamples * activeChannelCount / measuredRate;
     if (seconds >= 1) return { value: seconds, unit: "s" };
     if (seconds >= 0.001) return { value: seconds * 1000, unit: "ms" };
     return { value: seconds * 1000000, unit: "µs" };
@@ -742,7 +737,6 @@ function scheduleDraw() {
 
 historySlider.addEventListener("input", () => {
     maxDataPoints = Number(historySlider.value);
-    trimSamples();
     updateWindowTime();
     scheduleDraw();
 });

@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/message_buffer.h"
 
 #include "web_server.hpp"
 #include "wifi_station.hpp"
@@ -24,6 +25,11 @@ private:
     static constexpr uint32_t kAdcTaskStackSize = 6144;
     static constexpr UBaseType_t kAdcTaskPriority = 18;
     static constexpr BaseType_t kAdcCore = 1;
+    static constexpr char kSenderTaskName[] = "sample_sender";
+    static constexpr uint32_t kSenderTaskStackSize = 4096;
+    static constexpr UBaseType_t kSenderTaskPriority = 5;
+    static constexpr size_t kSampleMessageBufferSize = 32 * 1024;
+    static constexpr size_t kMaximumSamplePacketSize = 8192 + 16;
 
     Application() = default;
 
@@ -37,9 +43,11 @@ private:
     static void initialize_nvs() noexcept;
     static void initialize_mdns() noexcept;
     [[noreturn]] static void adc_task(void *context) noexcept;
+    [[noreturn]] static void sender_task(void *context) noexcept;
 
     WebServer web_server_;
     WifiStation wifi_;
+    MessageBufferHandle_t sample_messages_ = nullptr;
     std::atomic<uint32_t> requested_sample_rate_{CONFIG_SCOPE_SAMPLE_RATE_HZ};
     std::atomic<uint16_t> requested_bit_widths_{0x0fff};
     std::atomic<uint8_t> requested_channel_mask_{1u << 2};

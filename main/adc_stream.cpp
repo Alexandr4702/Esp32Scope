@@ -123,7 +123,8 @@ adc_continuous_handle_t initialize_adc(uint32_t sample_rate, uint16_t bit_widths
 {
     adc_continuous_handle_t handle = nullptr;
     adc_continuous_handle_cfg_t handle_config = {};
-    handle_config.max_store_buf_size = kAdcBufferSize * 4;
+    // Absorb short scheduler/Wi-Fi stalls without losing complete DMA frames.
+    handle_config.max_store_buf_size = kAdcBufferSize * 8;
     handle_config.conv_frame_size = kAdcBufferSize;
     ESP_ERROR_CHECK(adc_continuous_new_handle(&handle_config, &handle));
 
