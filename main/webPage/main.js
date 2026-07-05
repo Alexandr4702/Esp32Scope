@@ -51,6 +51,9 @@ const mathChannels = [
     { enabled: false, operation: "subtract", a: 0, b: 1 },
     { enabled: false, operation: "smooth", a: 0, b: 1 }
 ];
+const recordSampleLimit = 1000000;
+let recording = null;
+let lastRecordStatusAt = 0;
 
 const mathOperations = [
     ["add", "A + B"], ["subtract", "A − B"], ["multiply", "A × B (normalized)"],
@@ -183,6 +186,7 @@ function connect() {
             const packet = decodeAdcData(new Uint8Array(event.data));
             const decoded = unpackSamples(packet);
             rateCounter += decoded.totalCount;
+            appendRecording(decoded);
             if (!paused) {
                 activeChannelCount = decoded.channels.length;
                 decoded.channels.forEach((values, channel) => appendSamples(channel, values));
@@ -464,6 +468,92 @@ function calculateMath(channel, raw) {
     return result;
 }
 
+function updateRecordStatus(force = false) {
+    if (!recording) return;
+    const now = performance.now();
+    if (!force && now - lastRecordStatusAt < 200) return;
+    lastRecordStatusAt = now;
+    const duration = recording.counts.length ? Math.min(...recording.counts) / recording.sampleRate : 0;
+    $("record-state").textContent = `Recording: ${recording.total.toLocaleString()} / ${recordSampleLimit.toLocaleString()} samples · ${duration.toFixed(3)} s`;
+}
+
+function appendRecording(decoded) {
+    if (!recording) return;
+    if (decoded.channels.length !== recording.gpios.length || activeGpios.join() !== recording.gpios.join()) {
+        finishRecording();
+        return;
+    }
+    let remaining = recordSampleLimit - recording.total;
+    for (let channel = 0; channel < decoded.channels.length && remaining > 0; channel++) {
+        const source = decoded.channels[channel];
+        const take = Math.min(source.length, remaining);
+        if (take > 0) {
+            recording.chunks[channel].push(source.slice(0, take));
+            recording.counts[channel] += take;
+            recording.total += take;
+            remaining -= take;
+        }
+    }
+    updateRecordStatus();
+    if (recording.total >= recordSampleLimit) setTimeout(finishRecording, 0);
+}
+
+function flattenRecording(record) {
+    return record.chunks.map((chunks, channel) => {
+        const result = new Uint16Array(record.counts[channel]);
+        let offset = 0;
+        chunks.forEach(chunk => { result.set(chunk, offset); offset += chunk.length; });
+        return result;
+    });
+}
+
+function downloadCsv(headers, columns, sampleRate, zeroIndex, name) {
+    if (!columns.length || !columns[0].length) return;
+    const rows = Math.min(...columns.map(column => column.length));
+    const parts = ["\ufeff", ["time_s", ...headers].join(","), "\r\n"];
+    const batchSize = 10000;
+    for (let start = 0; start < rows; start += batchSize) {
+        const lines = [];
+        const end = Math.min(rows, start + batchSize);
+        for (let index = start; index < end; index++) {
+            const time = sampleRate > 0 ? (index - zeroIndex) / sampleRate : 0;
+            lines.push([time.toPrecision(10), ...columns.map(column => column[index])].join(","));
+        }
+        parts.push(lines.join("\r\n"), "\r\n");
+    }
+    const blob = new Blob(parts, { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${name}-${timestamp}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+function startRecording() {
+    const channelRate = (measuredRate || Number(sampleRateControl.value)) / Math.max(1, activeChannelCount);
+    recording = {
+        gpios: [...activeGpios], sampleRate: channelRate,
+        chunks: Array.from({ length: activeChannelCount }, () => []),
+        counts: Array(activeChannelCount).fill(0), total: 0
+    };
+    $("record").textContent = "Stop & save";
+    $("record").classList.add("recording");
+    $("record-state").hidden = false;
+    updateRecordStatus(true);
+}
+
+function finishRecording() {
+    if (!recording) return;
+    const completed = recording;
+    recording = null;
+    $("record").textContent = "Record";
+    $("record").classList.remove("recording");
+    $("record-state").hidden = true;
+    downloadCsv(completed.gpios.map(gpio => `GPIO${gpio}`), flattenRecording(completed),
+        completed.sampleRate, 0, "esp32-scope-recording");
+}
+
 function windowCoefficient(kind, index, count) {
     if (count < 2 || kind === "rectangular") return 1;
     const angle = 2 * Math.PI * index / (count - 1);
@@ -679,21 +769,10 @@ $("save-csv").addEventListener("click", () => {
     const triggerIndex = triggerEnabled.checked ?
         Math.round((lastRenderedRaw[0].length - 1) * Number(triggerPosition.value) / 100) :
         lastRenderedRaw[0].length - 1;
-    const lines = [headers.join(",")];
-    for (let index = 0; index < lastRenderedRaw[0].length; index++) {
-        const time = sampleRate > 0 ? (index - triggerIndex) / sampleRate : 0;
-        const row = [time.toPrecision(10), ...lastRenderedRaw.map(channel => channel[index]),
-            ...math.flatMap(values => values ? [values[index]] : [])];
-        lines.push(row.join(","));
-    }
-    const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const link = document.createElement("a");
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    link.href = URL.createObjectURL(blob);
-    link.download = `esp32-scope-${timestamp}.csv`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 0);
+    downloadCsv(headers.slice(1), [...lastRenderedRaw, ...math.filter(Boolean)],
+        sampleRate, triggerIndex, "esp32-scope");
 });
+$("record").addEventListener("click", () => recording ? finishRecording() : startRecording());
 window.addEventListener("resize", scheduleDraw);
 verticalScale.addEventListener("change", scheduleDraw);
 [spectrumSource, spectrumMode, spectrumWindow].forEach(control => control.addEventListener("change", scheduleDraw));

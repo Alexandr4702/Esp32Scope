@@ -49,6 +49,8 @@ h1 { margin: 2px 0 0; font-size: clamp(1.65rem, 4vw, 2.4rem); letter-spacing: -.
 button { border: 1px solid #2eab76; border-radius: 8px; padding: 7px 13px; background: #15945e; color: white; font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
 button:hover { filter: brightness(1.12); }
 button.secondary { border-color: #314158; background: #172232; color: #b8c7d9; }
+button.recording { border-color: #ff6b7a; background: #a92f43; color: #fff; }
+.record-state { padding: 6px 16px; border-bottom: 1px solid rgba(255, 107, 122, .25); background: rgba(169, 47, 67, .12); color: #ff9cab; font-size: .75rem; font-variant-numeric: tabular-nums; }
 
 .canvas-wrap { position: relative; height: clamp(320px, 58vh, 680px); background: #090e15; }
 #scope { display: block; width: 100%; height: 100%; touch-action: none; }
